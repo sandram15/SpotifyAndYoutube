@@ -1,0 +1,212 @@
+---
+title: "Spotify analiza"
+author: "Sandra Miladinovic"
+date: "2026-07-26"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(moments)
+
+data = read.csv('Spotify_Youtube.csv', header = T)
+```
+
+# Eksplorativna analiza podataka (EDA)
+
+Jedna od odluka koju moramo doneti zarad istrazivacke analize podataka jeste koju bi promenljivu nas model trebalo da prediktuje, obzirom da ovaj skup podataka sadrži dve promenljive koje imaju potencijala za predikciju, a to su kolone Stream i Views. Podaci kolone Stream vezani su za broj stream-ova na platformi Spotify, dok podaci Views oslikavaju broj pregleda na spotu date pesme. Kako bismo adekvatno odredili ciljnu promenljivu, odradićemo istraživačku analizu podataka nad obe kolone. Pored toga, fokusiraćemo se na kolone za koje na osnovu domenskog znanja možemo zaključiti da će uticati na date vrednosti.
+
+## Univarijantna analiza
+
+Kako bismo adekvatno analizirali uticaj razlicitih promenljivih na potencijalne ciljne promenljive, trebalo bi odradi i pojedinačnu analizu kolona kako bismo mogli da uočimo potencijalne obrasce u podacima, anomalije i ekstremne vrednosti. Promenljive koje ćemo analizirati u okviru univarijantne analize su:
+
+
+- **Potencijalne ciljne promenljive** - Stream (broj stream-ova na Spotify-u) i Views (broj pregleda na Youtube spotu pesme)
+- **Audio karakteristike pesme** - kolone koje opisuju samu pesmu i njene zvučne karakteristike u obliku brojnih vrednosti - Danceability, Energy, Loudness, Speechiness, Acousticness, Instrumentalness, Liveness, Valence, Tempo
+- **Reakcije publike na YouTube-u** - kolone koje prikazuju samu reakciju publike na pesmu na YouTube-u - Likes, Comments
+- **Kategorije sadržaja** - podaci o tome da li je sadržaj licenciran i objavljen na zvaničnom YouTube kanalu - Licensed, official_video, da li je pesme objavljena u okviru albuma ili singla (Album)
+
+
+### Streams
+
+```{r}
+summary(data$Stream)
+```
+```{r}
+sd(data$Stream, na.rm = TRUE)
+```
+
+
+```{r}
+ggplot(data, aes(x = Stream)) +
+  geom_histogram(bins = 50, fill = "steelblue", color = "white") +
+  labs(
+    title = "Distribucija Stream", 
+    x = "Stream", 
+    y = "Broj pesama"
+    ) + 
+  theme_minimal()
+```
+Analizom histograma može se uočiti izražena desna asimetrija (right-skewed distribucija) u okviru promenljive Stream, što znači da velika količina pesama ima relativno mali broj stream-ova, dok mali broj veoma popularnih pesama dostiže vrednosti od preko milijardu stream-ova. Iako je ova pojava veoma izražena u okviru dijagrama, da bismo bili sigurni u asimetričnu distribuciju promeljive, pokušaćemo i numerički da potvrdimo desnu asimetričnost. 
+
+
+Da bismo sa sigurnošću potvrdili asimetričnost, koristimo meru asimetrije (skew) i meru spljoštenosti ili ekcesa (kurtosis). **Mera asimetrije** nam ukazuje u kojoj meri je neki raspored asimetričan, pri čemu ako je:
+
+- **skew = 0** -> raspored je simetričan
+- **skew > 0** -> raspored je asimetričan udesno (pozitivna asimetrija)
+- **skew < 0** -> raspored je asimetričan ulevo (negativna asimetrija)
+
+Ukoliko je apsolutna vrednost mere asimetrije veća od 0.5 zaključuje se jaka asimetrija. 
+
+Koeficijent spljoštenosti nam pokazuje u kojoj meri je neka raspodela spljoštena u odnosu na normalnu, pri čemu važi: 
+
+- **kurtosis = 0** -> raspored je normalno spljošten
+- **kurtosis > 0** -> raspored je više izdužen u odnosu na normalni raspored
+- **kurtosis < 0** -> raspored je više spljošten u odnosu na normalni raspored
+
+*Izvor: Ekonomski fakultet Novi Sad - Deskriptivna statistika [^1]*
+
+[^1]: https://www.ef.uns.ac.rs/predmeti/oas/statistika/2020-01-10-des-deskriptivna-statistika.pd
+
+```{r}
+data %>%
+  summarise(
+    mean = mean(Stream, na.rm = TRUE),
+    median = median(Stream, na.rm = TRUE),
+    std = sd(Stream, na.rm = TRUE),
+    skew = skewness(Stream, na.rm = TRUE),
+    kurtosis = kurtosis(Stream, na.rm = TRUE)
+  )
+```
+
+Na osnovu dobijenih vrednosti iz funkcije, pri čemu je skew znatno veći od 0.5 i kurtosis je veći od 20, možemo zaključiti da imamo prisustvo jake desne asimetrije. Da bismo mogli da izvršimo realnu i stabilnu analizu ove kolone, neophodno je da izvršimo logaritamsku transformaciju, koje će ublažiti uticaj ekstremnih vrednosti, kako one u ovom slučaju ne predstavljaju grešku u podacima, već jednostavni realan slučaj prisustva pesama koje su mnogo popularnije od većine.
+
+```{r}
+ggplot(data, aes(x = log(Stream))) +
+  geom_histogram(bins = 50, fill = "steelblue", color = "white") +
+  labs(
+    title = "Distribucija Stream  nakon transformacije", 
+    x = "Stream", 
+    y = "Broj pesama"
+    ) + 
+  theme_minimal()
+```
+Nakon izvršene logaritamske transformacije, distribucija stream-ova postala je više simetrična i bliža je normalnoj raspodeli, što nam omogućava stabilniju analizu odnosa Stream-a i ostalih promenljivih.
+
+### Views
+
+```{r}
+summary(data$Views)
+```
+```{r}
+ggplot(data, aes(x = Views)) +
+  geom_histogram(bins = 50, fill = "steelblue", color = "white") +
+  labs(
+    title = "Distribucija Views", 
+    x = "Views", 
+    y = "Broj pesama"
+    ) + 
+  theme_minimal()
+```
+Na osnovu histograma možemo zaključiti da i kod kolone Views postoji ista problematika kao i kod Stream, odnosno desna asimetrija. Da bismo ovu kolonu učinili lakšom za analizu i upoređivanju sa drugim kolonama, koristićemo istu metodologiju za rešavanja - logaritamsku transformaciju. Kako bismo sa sigurnošću potvrdili
+
+```{r}
+data %>%
+  summarise(
+    mean = mean(Views, na.rm = TRUE),
+    median = median(Views, na.rm = TRUE),
+    std = sd(Views, na.rm = TRUE),
+    skew = skewness(Views, na.rm = TRUE),
+    kurtosis = kurtosis(Views, na.rm = TRUE)
+  )
+```
+Kao što možemo videti, ovde je situacija identična kao kod Stream - jako visok vrednost vrednosti skew i pozitivna vrednost kurtosis-a ukazuje nam na jaku desnu asimetričnost.
+
+```{r}
+ggplot(data, aes(x = log(Views))) +
+  geom_histogram(bins = 50, fill = "steelblue", color = "white") +
+  labs(
+    title = "Distribucija Views nakon transformacije", 
+    x = "Views", 
+    y = "Broj pesama"
+    ) + 
+  theme_minimal()
+```
+Nakon logaritamske transformacije, kao i kod Stream promenljive, distribucija je bliža normalnoj.
+
+### Audio karakteristike
+
+Kako bismo lakše pregledali karakteristike kolona koje predstavljaju audio karakteristike, pregledaćemo ih kolektivno, jer ove kolone (Danceability, Energy, Loudness, Speechiness, 
+Acousticness, Instrumentalness, Liveness, Valence, Tempo) predstavljaju numeričke promenljive slične prirode - opisuju zvučne karakteristike pesme.
+
+```{r}
+audio_cols <- c("Danceability", "Energy", "Loudness", "Speechiness","Acousticness", "Instrumentalness", "Liveness", "Valence", "Tempo")
+
+data %>%
+  select(all_of(audio_cols)) %>%
+  pivot_longer(everything(), names_to = "variable", values_to = "value") %>%
+  ggplot(aes(x = value)) +
+  geom_histogram(bins = 30, fill = "steelblue", color = "white") +
+  facet_wrap(~variable, scales = "free") +
+  theme_minimal() +
+  labs(title = "Distribucije audio karakteristika", x = 'Karakteristike', y = 'Broj')
+```
+Kolone **Acousticness, Instrumentalness, Speechiness i Liveness** pokazuju izraženu desnu asimetričnost, sa velikom koncentracijom vrednosti u blizini nule, što je očekivano u odnosu na domensko znanje koje imamo o ovim karakteristikama, većina popularnih pesama ima vokal, samim tim i nizak Instrumentalness, nije snimljena uživo (nizak Liveness), i manje pesama je rep žanra, što ukazuje nizak Speechiness.
+
+Kolona **Loudness** pokazuje levu asimetriju, sa koncentracijom vrednosti blizu maksimuma (0 dB), što ukazuje na trend glasnije produkcije.
+
+Kolone **Danceability, Energy, Valence i Tempo** pokazuju raspodele najbliže 
+normalnoj, bez izraženih odstupanja koja bi zahtevala transformaciju.
+
+Za kolone čiji se opseg kreće od 0 do 1, nema preteranog smisla raditi logaritamsku transformaciju, tako da bi eventualno imale smisla transformacije feature engineering-om kao što je uvođenje binarne promenljive koja predstavlja da li pesma ima ili nema određenu osobinu.
+
+### Reakcije publike na YouTube-u
+
+```{r}
+data %>%
+  select(Likes, Comments) %>%
+  pivot_longer(everything(), names_to = "variable", values_to = "value") %>%
+  ggplot(aes(x = value)) +
+  geom_histogram(bins = 50, fill = "steelblue", color = "white") +
+  facet_wrap(~variable, scales = "free") +
+  theme_minimal() +
+  labs(title = "Distribucije Likes i Comments", x = "Vrednost", y = "Broj pesama")
+```
+Kolone Likes i Comments predstavljaju mere reakcije publike na YouTube video 
+spot. Slično kao i kod Views, obe promenljive pokazuju izraženu desnu  asimetriju (right-skewed distribuciju), što znači mali broj izuzetno popularnih video spotova prikuplja veliki broj lajkova i komentara. Zbog ove osobine, kasnije bi bilo korisno izvršiti logaritamsku transformaciju ovih kolona.
+
+### Kategorije sadržaja
+
+```{r}
+library(tidyr)
+
+data %>%
+  select(Licensed, official_video, Album_type) %>%
+  pivot_longer(everything(), names_to = "variable", values_to = "value") %>%
+  ggplot(aes(x = value)) +
+  geom_bar(fill = "steelblue") +
+  facet_wrap(~variable, scales = "free") +
+  theme_minimal() +
+  labs(title = "Distribucije kategorijskih promenljivih", x = "Kategorija", y = "Broj pesama")
+```
+
+Analizom kategorijskih promenljivih Album_type, Licensed i official_video 
+uočava se izražena neravnomernost u raspodeli kategorija kod sve tri 
+promenljive:
+
+- **Album_type** - većina pesama (preko 15.000) objavljena je u 
+  okviru albuma, dok je znatno manji broj objavljen kao singl (oko 5.000), 
+  a najmanje pesama pripada kategoriji "compilation" (ispod 1.000).
+- **Licensed** - većina pesama (oko 15.000) je označena kao licenciran 
+  sadržaj, dok manji broj (oko 5.000) nije.
+- **official_video** - slično kao kod Licensed, većina pesama (oko 15.000) 
+  poseduje zvaničan video spot, dok manji broj (oko 5.000) nema.
+
+Sve tri promenljive pokazuju sličan obrazac - jedna kategorija izrazito 
+dominira u odnosu na ostale, što je bitno uzeti u obzir prilikom bivarijantne 
+analize, s obzirom da značajna neravnoteža u broju opservacija po grupama 
+može uticati na pouzdanost poređenjaizmeđu kategorija.
