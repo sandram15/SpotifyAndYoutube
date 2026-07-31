@@ -1,0 +1,74 @@
+---
+title: "bivarijantna_stream"
+author: "Sandra Miladinovic"
+date: "2026-07-31"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(forcats)
+library(scales)
+
+data = read.csv('Spotify_Youtube.csv', header = T)
+```
+
+## Bivarijatna analiza - Streams
+
+Bivarijantna analiza predstavlja ispitivanje odnosa između dve promenljive sa ciljem utvrđivanja postojanja, jačine i pravca njihove povezanosti. Kako bismo odlučili koju promenljivu predviđamo neophodno je da odradimo bivarijantnu analizu, odnosno odnos različitih promenljivih i potencijalnih ciljne promenljive, pri čemu će se u okviru ovog dela sagledavati kolone pregledane u univarijantnoj analizi, kao i određene kategorijske promenljive, poput izvođača pesme, u odnosu na kolonu *Stream*.
+
+### Artist
+
+Artist je kategorijska kategorija koja predstavlja izvođača same pesme, pri čemu postoji veliki broj različitih umetnika.
+
+```{r}
+data %>%
+  summarise(unique_artists = n_distinct(Artist))
+```
+Kako broj jedinstvenih umetnika prelazi 2000, nije dovoljno informativno direktno poređenje svih izvođača u odnosu na ciljnu kolonu, pa ćemo se fokusirati na izvođače sa najboljim uspehom na Spotify-u. Pored toga, da bismo adekvatno uporedili uspehe izvođača na Spotify-u, koristićemo i ukupan broj stream-ova na pesmi, kao i neki prosek stream-ova po izvođaču, kako će suma favorizovati izvođače sa većim brojem pesama, a prilikom rangiranja koristećemo Bajesov prosek, da ne bi bili favorizovani umetnici sa nekoliko pesama i samim tim velikim prosekom stream-ova.
+
+Bajesov prosek računa se prema formuli:
+
+$$
+\text{Bayesian Average} =
+\frac{v}{v+m}R + \frac{m}{v+m}C
+$$
+
+gde je:
+
+- \(R\) – prosečan broj stream-ova za datog izvođača,
+- \(v\) – broj pesama izvođača,
+- \(C\) – globalni prosečan broj stream-ova svih pesama u skupu podataka,
+- \(m\) – minimalan broj pesama potreban da bi prosek bio potpuno pouzdan (hiperparametar).
+
+```{r}
+global_avg = mean(data$Stream, na.rm = TRUE)
+
+m = 5
+
+top_bayes_artists = data %>%
+  group_by(Artist) %>%
+  summarise( broj_pesama = n(),total_streams = sum(Stream, na.rm = TRUE),avg_streams =    mean(Stream, na.rm = TRUE),  .groups = "drop") %>%
+  mutate(bayesian_avg = (m * global_avg + total_streams) / (m + broj_pesama)) %>%
+  arrange(desc(bayesian_avg)) %>%
+  slice_head(n = 15)
+
+top_bayes_artists
+```
+
+```{r}
+ggplot(top_bayes_artists,
+       aes(x = fct_reorder(Artist, bayesian_avg),
+           y = bayesian_avg)) +
+  geom_col(fill = "#1DB954") +
+  coord_flip() +
+  scale_y_continuous(labels = label_number(scale = 1e-9, suffix = "B" )) +
+  labs(title = "Top 15 izvođača", x = "Izvođač", y = "Prosek stream-ova") +
+  theme_minimal(base_size = 13) + theme(plot.title = element_text(face = "bold"), axis.text.y = element_text(size = 10))
+```
+
