@@ -1,0 +1,320 @@
+---
+title: "Spotify analiza"
+author: "Katarina Dimitrijevic"
+date: "2026-07-30"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(moments)
+library(rstatix)
+library(reshape2)
+
+data = read.csv('Spotify_Youtube.csv', header = T)
+
+# Pomocna funkcija: proverava normalnost value_col unutar svake kategorije group_col
+# koristeci Shapiro-Wilk test sa bootstrap pristupom (zbog velikog uzorka).
+shapiro_boot <- function(data, group_col, value_col) {
+  categories <- unique(data[[group_col]])
+  categories <- categories[!is.na(categories)]
+
+  lapply(categories, function(cat) {
+    values <- na.omit(data[[value_col]][data[[group_col]] == cat])
+
+    if (length(values) > 3) {
+      p_values <- replicate(500, shapiro.test(sample(values, min(3000, length(values))))$p.value)
+      p_mean <- mean(p_values)
+
+      if (p_mean > 0.05) {
+        sprintf("Varijabla %s po %s kategoriji ima normalnu raspodelu.", value_col, as.character(cat))
+      } else {
+        sprintf("Varijabla %s po %s kategoriji nema normalnu raspodelu.", value_col, as.character(cat))
+      }
+    } else {
+      sprintf("Varijabla %s po %s kategoriji ima manje od 3 observacije.", value_col, as.character(cat))
+    }
+  })
+}
+```
+
+# Bivarijantna analiza
+
+Cilj ove sekcije je da ispitamo odnos između promenljive **Views** i ostalih promenljivih u skupu podataka, kako bismo utvrdili koji atributi imaju potencijal da budu značajni prediktori. Analizu ćemo sprovesti u tri dela:
+
+- Views naspram numeričkih promenljivih (audio karakteristike, Duration_ms, Likes, Comments)
+- Views naspram kategorijskih promenljivih (Album_type, Licensed, official_video)
+- Views naspram Stream (radi kasnije odluke o ciljnoj promenljivoj)
+
+## Provera duplikata
+
+Pre bilo kakve analize, proveravamo da li u skupu podataka postoje duplirani redovi.
+
+```{r}
+sum(duplicated(data))
+```
+
+Rezultat pokazuje da u skupu podataka nema dupliranih redova, tako da po ovom osnovu nije potrebno dodatno čišćenje.
+
+## Views naspram numeričkih promenljivih
+
+Koristimo Spearman koeficijent korelacije umesto Pearson-ovog, s obzirom na to da smo u univarijantnoj analizi utvrdili da numeričke promenljive (Stream, Views, Likes, Comments) nisu normalno raspodeljene, a Spearman je otporan na monotone transformacije i outlier-e.
+
+```{r}
+numeric_cols <- c("Views", "Danceability", "Energy", "Key", "Loudness",
+                   "Speechiness", "Acousticness", "Instrumentalness",
+                   "Liveness", "Valence", "Tempo", "Duration_ms",
+                   "Likes", "Comments", "Stream")
+
+corr <- cor(data[, numeric_cols], use = "complete.obs", method = "spearman")
+corr.melt <- melt(corr)
+
+ggplot(corr.melt, aes(x = Var1, y = Var2, fill = value)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = round(value, 2)), size = 3) +
+  scale_fill_distiller(palette = "PRGn", type = "div", limits = c(-1, 1)) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  coord_fixed() +
+  labs(title = "Heatmap korelacija - Views i numericke promenljive", x = "", y = "", fill = "Corr")
+```
+
+```{r}
+sort(corr["Views", ], decreasing = TRUE)
+```
+
+Analizom heatmape uočavamo da su ubedljivo najjače povezane promenljive sa Views upravo **Likes** (ρ = 0.96) i **Comments** (ρ = 0.91), što je i očekivano s obzirom na to da su to mere reakcije publike izmerene na istom YouTube videu, u istom trenutku kada i broj pregleda. Nešto slabija, ali i dalje umerena do jaka veza postoji sa **Stream** (ρ = 0.61), što ukazuje da je popularnost pesme donekle povezana kroz obe platforme (Spotify i YouTube), iako ne u istoj meri kao unutar same YouTube platforme.
+
+Sa druge strane, audio karakteristike pesme pokazuju samo slabe veze sa brojem pregleda: najizraženije su **Loudness** (ρ = 0.25) i **Duration_ms** (ρ = 0.18), dok su **Energy**, **Danceability** i **Valence** ispod 0.15, a **Instrumentalness** (ρ = -0.19) i **Acousticness** (ρ = -0.12) pokazuju blagu negativnu vezu. Ovo sugeriše da same zvučne karakteristike pesme imaju veoma ograničen uticaj na broj pregleda - popularnost videa verovatno je više određena faktorima koji nisu direktno obuhvaćeni audio atributima (npr. popularnost izvođača, marketing, algoritam platforme). Korelacija sa **Key** je zanemarljiva (ρ = 0.02), što je i očekivano jer Key predstavlja nominalnu (kategorijsku) promenljivu kodiranu brojevima, pa monotona veza sa njom suštinski nema smisla.
+
+Važno je napomenuti da **Likes, Comments i Stream** treba oprezno koristiti kao prediktore ukoliko Views postane ciljna promenljiva - reč je o varijablama koje se prikupljaju u istom trenutku i istom kontekstu kao i sam broj pregleda (potencijalni data leakage), a ne o karakteristikama poznatim unapred. 
+
+```{r}
+data %>%
+  select(Views, Likes, Comments, Stream) %>%
+  pivot_longer(cols = c(Likes, Comments, Stream), names_to = "variable", values_to = "value") %>%
+  ggplot(aes(x = log1p(value), y = log1p(Views))) +
+  geom_point(alpha = 0.2, color = "steelblue") +
+  geom_smooth(method = "loess", color = "red", se = FALSE) +
+  facet_wrap(~variable, scales = "free_x") +
+  theme_minimal() +
+  labs(title = "Views naspram Likes, Comments i Stream (log skala)", x = "log(vrednost + 1)", y = "log(Views + 1)")
+```
+
+Scatter plotovi potvrđuju razlike u jačini veze koje smo uočili u korelacionoj matrici, ali otkrivaju i dodatne obrasce koje sama korelaciona vrednost ne pokazuje:
+
+- **Likes** pokazuje najčistiju, gotovo linearnu vezu sa Views na log-skali kroz ceo opseg vrednosti - oblak tačaka tesno prati regresionu liniju, što je u skladu sa najvišom izračunatom korelacijom.
+- **Comments** pokazuje S-oblik krive: za pesme sa nula komentara (vertikalna traka tačaka na x = 0), broj pregleda i dalje značajno varira, što znači da odsustvo komentara samo po sebi ne govori mnogo o popularnosti videa. Na najvišim vrednostima kriva blago ravna, što može ukazivati na efekat zasićenja - iznad određenog broja komentara dodatni komentari više ne prate proporcionalan rast broja pregleda.
+- **Stream** pokazuje znatno rasprseniji (šumovitiji) oblak tačaka u odnosu na Likes i Comments, u skladu sa slabijom korelacijom. Posebno se izdvaja grupa pesama sa visokim brojem stream-ova na Spotify-u, ali neočekivano niskim brojem YouTube pregleda - ovo ukazuje da popularnost na dve platforme ne prati uvek isti obrazac, verovatno zbog razlika u publici ili zato što zvanični video spot pesme nije dostupan, uklonjen, ili se značajno razlikuje po popularnosti od same audio verzije.
+
+```{r}
+cor.test(data$Views, data$Likes, method = "spearman")
+```
+
+Formalni test potvrđuje ono što smo uočili u heatmapi i na scatter plotu: korelacija između Views i Likes iznosi ρ = 0.96, uz p-vrednost znatno manju od 0.05 (p < 2.2e-16), što ukazuje na statistički veoma značajnu i praktično jaku pozitivnu vezu. Upozorenje o nemogućnosti izračunavanja tačne p-vrednosti (zbog prisustva vezanih rangova - *ties*) je očekivano kod velikog uzorka sa dosta ponovljenih vrednosti i ne utiče na pouzdanost zaključka - R u tom slučaju koristi aproksimaciju zasnovanu na normalnoj raspodeli, koja je pouzdana za ovako veliki broj opservacija.
+
+## Views naspram kategorijskih promenljivih
+
+Za razliku od numeričkih promenljivih gde smo koristili korelaciju, ovde ispitujemo da li se raspodela Views razlikuje između kategorija. S obzirom na to da smo u univarijantnoj analizi utvrdili da Views nije normalno raspodeljena (izražena desna asimetrija), koristimo neparametarske testove - Kruskal-Wallis za promenljivu sa 3 nivoa (Album_type) i Mann-Whitney U test za promenljive sa 2 nivoa (Licensed, official_video), uz effect size da procenimo da li je razlika i praktično značajna, ne samo statistički.
+
+### Album_type
+
+```{r}
+data %>%
+  group_by(Album_type) %>%
+  summarise(
+    Count = n(),
+    Mean_Views = mean(Views, na.rm = TRUE),
+    Median_Views = median(Views, na.rm = TRUE),
+    Std_Views = sd(Views, na.rm = TRUE),
+    IQR_Views = IQR(Views, na.rm = TRUE)
+  ) %>%
+  arrange(desc(Median_Views))
+```
+
+Opisna statistika pokazuje da pesme sa albuma (**album**) imaju najveću medijalnu vrednost Views (15.78M), zatim slede **single** (11.32M) i **compilation** (9.57M). Takođe se uočava da je standardna devijacija u sve tri grupe ogromna u odnosu na medijanu, što potvrđuje već poznatu jaku desnu asimetriju unutar svake kategorije.
+
+```{r}
+ggplot(data, aes(x = Album_type, y = log1p(Views), fill = Album_type)) +
+  geom_violin(trim = FALSE, alpha = 0.8) +
+  geom_boxplot(width = 0.1, outlier.shape = NA, alpha = 0.3) +
+  theme_minimal() +
+  labs(title = "Distribucija Views po Album_type (log skala)", x = "Album_type", y = "log(Views + 1)")
+```
+
+Violin plot pokazuje da su oblici raspodele Views (na log-skali) veoma slični u sve tri kategorije - unimodalni, slične širine, sa dugim donjim repom u svakoj grupi (postoje pesme sa vrlo malo pregleda u sva tri tipa albuma). Medijane (linije unutar kutije) su vizuelno blizu jedna drugoj, jer log transformacija kompresuje razlike koje smo uočili na originalnoj skali (album 15.78M naspram compilation 9.57M) - iako razlika ne izgleda drastično na grafiku, kod ovako velikog broja opservacija (n ≈ 20.700) i mala razlika može biti statistički značajna.
+
+Iako je malo verovatno da je Views normalno raspodeljena unutar bilo koje kategorije Album_type - s obzirom na to da cela promenljiva pokazuje jaku desnu asimetriju - proverićemo ovo formalno, umesto da se oslonimo samo na pretpostavku. Koristimo Shapiro-Wilk test sa bootstrap pristupom (višestruko uzorkovanje po 3000 opservacija, 500 puta), zbog osetljivosti testa na velike uzorke.
+
+```{r}
+set.seed(123)
+shapiro_boot(data, "Album_type", "Views")
+```
+
+Kao što smo i pretpostavili, Views nema normalnu raspodelu ni u jednoj od tri kategorije Album_type (album, single, compilation), što potvrđuje opravdanost korišćenja neparametarskog Kruskal-Wallis testa.
+
+Da bismo utvrdili da li je razlika i statistički i praktično značajna, sprovodimo Kruskal-Wallis test uz effect size.
+
+```{r}
+kruskal.test(Views ~ Album_type, data = data)
+```
+
+```{r}
+kruskal_effsize(Views ~ Album_type, data = data)
+```
+
+Iako Kruskal-Wallis test pokazuje statistički veoma značajnu razliku (p = 2.731e-11), effect size je izuzetno mali (η² = 0.00225). Ovo znači da, iako postoji statistički merljiva razlika u broju pregleda između različitih tipova albuma, ta razlika je toliko mala da nema praktičnog značaja - Album_type verovatno neće biti koristan prediktor za Views.
+
+### Licensed
+
+Pretpostavka: licenciran sadržaj je verovatno zvanično distribuiran od strane izdavačke kuće/label-a, pa bi mogao imati veću vidljivost i samim tim više pregleda.
+
+Napomena: kolona Licensed sadrži, pored "True"/"False", i prazan string `""` (verovatno iste opservacije kod kojih nedostaju i ostali YouTube podaci). Kako Mann-Whitney test zahteva tačno dve grupe, za potrebe ove analize ih lokalno izbacujemo, bez trajne izmene glavnog data seta - konačnu odluku o imputaciji ovih vrednosti donosimo kasnije, u fazi pripreme podataka.
+
+```{r}
+data_licensed <- data %>% filter(Licensed != "")
+```
+
+```{r}
+data_licensed %>%
+  group_by(Licensed) %>%
+  summarise(
+    Count = n(),
+    Mean_Views = mean(Views, na.rm = TRUE),
+    Median_Views = median(Views, na.rm = TRUE),
+    Std_Views = sd(Views, na.rm = TRUE),
+    IQR_Views = IQR(Views, na.rm = TRUE)
+  ) %>%
+  arrange(desc(Median_Views))
+```
+
+Za razliku od Album_type, ovde vidimo mnogo izraženiju razliku: pesme sa Licensed = True imaju medijalnu vrednost Views od 25.8M, dok Licensed = False imaju svega 2.82M - gotovo 9 puta manje. Ovo je u skladu sa pretpostavkom da licenciran sadržaj ima veću vidljivost. Ponovo se uočava ogromna standardna devijacija u odnosu na medijanu u obe grupe, potvrđujući jaku desnu asimetriju.
+
+```{r}
+ggplot(data_licensed, aes(x = Licensed, y = log1p(Views), fill = Licensed)) +
+  geom_violin(trim = FALSE, alpha = 0.8) +
+  geom_boxplot(width = 0.1, outlier.shape = NA, alpha = 0.3) +
+  theme_minimal() +
+  labs(title = "Distribucija Views po Licensed (log skala)", x = "Licensed", y = "log(Views + 1)")
+```
+
+Violin plot potvrđuje ovu razliku vizuelno - distribucija za Licensed = True je pomerena na više vrednosti u odnosu na Licensed = False (medijana kod True je oko log(Views + 1) ≈ 17, a kod False oko ≈ 15), dok oba oblika raspodele ostaju slična (unimodalna, sa dugim donjim repom). Ovo je znatno izraženija razlika nego što smo videli kod Album_type, što sugeriše da bi Licensed mogao biti relevantniji prediktor za Views.
+
+Iako je malo verovatno da je Views normalno raspodeljena unutar bilo koje kategorije Licensed, proverićemo to formalno Shapiro-Wilk testom sa bootstrap pristupom, umesto da se oslonimo samo na pretpostavku.
+
+```{r}
+set.seed(123)
+shapiro_boot(data_licensed, "Licensed", "Views")
+```
+
+Kao što smo i pretpostavili, Views nema normalnu raspodelu ni u jednoj od dve kategorije Licensed (True, False), što opravdava korišćenje Mann-Whitney U testa.
+
+```{r}
+wilcox.test(Views ~ Licensed, data = data_licensed)
+```
+
+```{r}
+wilcox_effsize(Views ~ Licensed, data = data_licensed)
+```
+
+Za razliku od Album_type, ovde Mann-Whitney test pokazuje ne samo statističku (p < 2.2e-16), već i praktičnu značajnost - effect size (r = 0.352) spada u kategoriju umerene (*moderate*) razlike. Ovo potvrđuje da je Licensed relevantna promenljiva: pesme koje su licencirane imaju znatno veći broj pregleda od onih koje nisu, i ova razlika nije samo statistički artefakt velikog uzorka, već predstavlja stvarnu, praktično uočljivu razliku. Za razliku od Album_type, Licensed bi mogao biti koristan prediktor za Views.
+
+### official_video
+
+Pretpostavka: pesme sa zvaničnim video spotom su vizuelno bolje i vise promovisane (u odnosu na lyric video ili generičku sliku), pa bismo očekivali veći broj pregleda.
+
+Napomena: kao i kod Licensed, proveravamo i ovde da li official_video sadrži prazan string `""` i, ako da, lokalno ga izbacujemo iz analize (bez trajne izmene glavnog data seta), jer Mann-Whitney test zahteva tačno dve grupe.
+
+```{r}
+data_video <- data %>% filter(official_video != "")
+```
+
+```{r}
+data_video %>%
+  group_by(official_video) %>%
+  summarise(
+    Count = n(),
+    Mean_Views = mean(Views, na.rm = TRUE),
+    Median_Views = median(Views, na.rm = TRUE),
+    Std_Views = sd(Views, na.rm = TRUE),
+    IQR_Views = IQR(Views, na.rm = TRUE)
+  ) %>%
+  arrange(desc(Median_Views))
+```
+
+Slično kao kod Licensed, uočava se velika razlika: pesme sa zvaničnim video spotom (official_video = True) imaju medijalnu vrednost Views od 23.33M, dok one bez njega (False) imaju svega 1.79M - razlika od preko 13 puta, čak i veća nego kod Licensed. Ovo je u skladu sa pretpostavkom da zvaničan video spot značajno povećava vidljivost pesme. I ovde je standardna devijacija ogromna u odnosu na medijanu u obe grupe, potvrđujući poznatu desnu asimetriju.
+
+```{r}
+ggplot(data_video, aes(x = official_video, y = log1p(Views), fill = official_video)) +
+  geom_violin(trim = FALSE, alpha = 0.8) +
+  geom_boxplot(width = 0.1, outlier.shape = NA, alpha = 0.3) +
+  theme_minimal() +
+  labs(title = "Distribucija Views po official_video (log skala)", x = "official_video", y = "log(Views + 1)")
+```
+
+Violin plot potvrđuje vizuelno ono što smo videli u opisnoj statistici - distribucija za official_video = True je jasno pomerena na više vrednosti (medijana ≈ 17) u odnosu na False (medijana ≈ 14.5), uz nešto užu i koncentrisaniju raspodelu kod True. Razdvojenost dve grupe je vizuelno izraženija nego kod Licensed, što je u skladu sa i većom razlikom u medijanama na originalnoj skali.
+
+Iako je malo verovatno da je Views normalno raspodeljena unutar bilo koje kategorije official_video, proverićemo to formalno Shapiro-Wilk testom sa bootstrap pristupom, umesto da se oslonimo samo na pretpostavku.
+
+```{r}
+set.seed(123)
+shapiro_boot(data_video, "official_video", "Views")
+```
+
+Kao što smo i pretpostavili, Views nema normalnu raspodelu ni u jednoj od dve kategorije official_video (True, False), što opravdava korišćenje Mann-Whitney U testa.
+
+```{r}
+wilcox.test(Views ~ official_video, data = data_video)
+```
+
+```{r}
+wilcox_effsize(Views ~ official_video, data = data_video)
+```
+
+Mann-Whitney test potvrđuje statistički veoma značajnu razliku (p < 2.2e-16), a effect size (r = 0.364) takođe spada u kategoriju umerene (*moderate*) razlike, veoma slično kao kod Licensed (r = 0.352). Ovo potvrđuje da official_video ima i praktičnu, ne samo statističku značajnost - pesme sa zvaničnim video spotom imaju značajno veći broj pregleda.
+
+### Zaključak - kategorijske promenljive
+
+Rezimirajući rezultate za sve tri kategorijske promenljive:
+
+- **Album_type** pokazuje statistički značajnu, ali praktično zanemarljivu razliku (η² = 0.00225) - verovatno neće biti koristan prediktor za Views.
+- **Licensed** (r = 0.352) i **official_video** (r = 0.364) pokazuju umerenu praktičnu značajnost, što ih čini potencijalno korisnim prediktorima za Views.
+
+Zanimljivo je što Licensed i official_video imaju gotovo identičnu jačinu efekta - ovo je moguće zato što su međusobno povezane promenljive (pesme sa zvaničnim video spotom su verovatno i češće licencirane). Ovu vezu bi vredelo proveriti u nekom od narednih koraka, jer bi mogla ukazivati na redundantnost (obe promenljive nose sličnu informaciju) koju treba uzeti u obzir prilikom odabira prediktora za model.
+
+## Views naspram Stream
+
+Ova sekcija nam ne služi za predikciju, već da uporedimo Views i Stream kao dva kandidata za ciljnu promenljivu - korisno je da vidimo koliko su međusobno povezani i koliko je koji od njih kompletan (broj nedostajućih vrednosti), pre nego što donesemo konačnu odluku o ciljnoj promenljivoj.
+
+```{r}
+sum(is.na(data$Views))
+sum(is.na(data$Stream))
+```
+
+Uočavamo da Views ima nešto manje nedostajućih vrednosti (470) u odnosu na Stream (576) - razlika od 106 opservacija. Ovo je mala, ali korisna informacija za kasniju odluku o ciljnoj promenljivoj, jer bi Views bila neznatno kompletnija varijabla.
+
+```{r}
+ggplot(data, aes(x = log1p(Stream), y = log1p(Views))) +
+  geom_point(alpha = 0.2, color = "steelblue") +
+  geom_smooth(method = "loess", color = "red", se = FALSE) +
+  theme_minimal() +
+  labs(title = "Views naspram Stream (log skala)", x = "log(Stream + 1)", y = "log(Views + 1)")
+```
+
+Scatter plot pokazuje pozitivnu monotonu vezu, ali sa vidljivo većim  šumom u odnosu na Likes i Comments, u skladu sa umerenom korelacijom. Ponovo se uočava grupa pesama sa srednje-visokim brojem stream-ova, ali neočekivano niskim brojem pregleda (donji deo grafika), potvrđujući ranije zapažanje da popularnost na dve platforme ne prati uvek isti obrazac.
+
+```{r}
+cor.test(data$Views, data$Stream, method = "spearman")
+```
+
+Formalni test potvrđuje umerenu do jaku pozitivnu korelaciju (ρ = 0.608, p < 2.2e-16), u skladu sa vrednošću iz početne korelacione matrice. Ovo pokazuje da su Views i Stream povezani, ali ne toliko snažno da bi bili međusobno zamenljivi - svaka promenljiva nosi i deo jedinstvene informacije o popularnosti pesme na svojoj platformi, pa izbor ciljne promenljive nije trivijalan.
+
+## Ukupan zaključak bivarijantne analize
+
+- **Numeričke promenljive**: Likes (ρ = 0.96) i Comments (ρ = 0.91) su najjače povezane sa Views, ali predstavljaju potencijalni rizik od data leakage-a jer se mere istovremeno sa samim pregledima. Audio karakteristike pokazuju samo slabe veze (najviše Loudness, ρ = 0.25). Stream pokazuje umerenu vezu (ρ = 0.61).
+- **Kategorijske promenljive**: Album_type nema praktičnog značaja (η² = 0.00225), dok Licensed (r = 0.352) i official_video (r = 0.364) pokazuju umerenu praktičnu značajnost i mogu biti korisni prediktori.
+- **Views vs Stream**: umereno do jako korelisani (ρ = 0.61), ali ne identični - svaka promenljiva nosi deo jedinstvene informacije, a Views je neznatno kompletnija varijabla (manje NA vrednosti).
