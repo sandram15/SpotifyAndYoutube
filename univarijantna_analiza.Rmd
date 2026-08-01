@@ -29,6 +29,8 @@ Kako bismo adekvatno analizirali uticaj razlicitih promenljivih na potencijalne 
 - **Audio karakteristike pesme** - kolone koje opisuju samu pesmu i njene zvučne karakteristike u obliku brojnih vrednosti - Danceability, Energy, Loudness, Speechiness, Acousticness, Instrumentalness, Liveness, Valence, Tempo
 - **Reakcije publike na YouTube-u** - kolone koje prikazuju samu reakciju publike na pesmu na YouTube-u - Likes, Comments
 - **Kategorije sadržaja** - podaci o tome da li je sadržaj licenciran i objavljen na zvaničnom YouTube kanalu - Licensed, official_video, da li je pesme objavljena u okviru albuma ili singla (Album)
+- **Izvođač** - podaci o tome ko je izvođač pesme (Artist), kao i na kom Youtube kanalu je objavljena određena pesma (Channel), kao i o tome na kom albumu je objavljena pesma (Album)
+
 
 
 ### Streams
@@ -206,7 +208,52 @@ promenljive:
 - **official_video** - slično kao kod Licensed, većina pesama (oko 15.000) 
   poseduje zvaničan video spot, dok manji broj (oko 5.000) nema.
 
-Sve tri promenljive pokazuju sličan obrazac - jedna kategorija izrazito 
-dominira u odnosu na ostale, što je bitno uzeti u obzir prilikom bivarijantne 
-analize, s obzirom da značajna neravnoteža u broju opservacija po grupama 
-može uticati na pouzdanost poređenjaizmeđu kategorija.
+Sve tri promenljive pokazuju sličan obrazac - jedna kategorija izrazito dominira u odnosu na ostale, što je bitno uzeti u obzir prilikom bivarijantne analize, s obzirom da značajna neravnoteža u broju opservacija po grupama može uticati na pouzdanost poređenjaizmeđu kategorija.
+
+### Izvođač i kanal
+
+Pored numeričkih i kategorijskih promenljivih, skup podataka sadrži i dve promenljive sa velikim brojem različitih nivoa - Artist (izvođač pesme) i Channel (YouTube kanal na kome je pesma objavljena). 
+
+```{r}
+data %>%
+  summarise(
+    unique_artists = n_distinct(Artist),
+    unique_channels = n_distinct(Channel)
+  )
+```
+
+Izvođača ima preko 2000, dok kanala ima preko 6000, što u potpunosti razumljivo ukoliko uzmemo u obzir da pesme istih izvođača mogu biti objavljene na više različitih kanala i slično.
+
+```{r}
+data %>%
+  count(Artist) %>%
+  ggplot(aes(x = n)) +
+  geom_histogram(binwidth = 1, fill = "steelblue", color = "white") +
+  theme_minimal() +
+  labs(title = "Broj pesama po izvođaču", x = "Broj pesama", y = "Broj izvođača")
+```
+Ispravljen histogram jasno pokazuje da većina izvođača (preko 2000) ima tačno ili blizu 10 pesama zastupljenih u skupu, dok svega mali broj  izvođača ima manje od toga. Ovakav obrazac ukazuje na to da su podaci prikupljeni tako da ima do 10 pesama po izvođaču. Obzirom na to da skoro svaki izvođač ima sličan, ograničen broj pesama, razlike u ukupnom broju stream-ova između izvođača uglavnom neće biti posledica toga da neki izvođači imaju mnogo veći broj pesama od drugih, već stvarne razlike u popularnosti po pesmi.
+
+
+```{r}
+data %>%
+  filter(!is.na(Channel), Channel != "") %>%
+  count(Channel) %>%
+  ggplot(aes(x = n)) +
+  geom_histogram(binwidth = 1, fill = "steelblue", color = "white") +
+  theme_minimal() +
+  labs(title = "Broj pesama po kanalu", x = "Broj pesama", y = "Broj kanala")
+```
+Distribucija broja pesama po kanalu pokazuje izraženu desnu asimetriju, većina kanala ima svega jednu ili nekoliko pesama, dok se izdvaja  manji broj kanala sa značajno većim brojem objavljenih pesama. Ova pojava se javlja verovatno jer neki kanali predstavljaju velike distributere, pa sadrže više pesama različitih izvođača.
+
+```{r}
+data %>%
+  filter(!is.na(Channel), Channel != "") %>%
+  count(Channel) %>%
+  arrange(desc(n)) %>%
+  slice_head(n = 5)
+```
+
+Uvidom u kanale sa najvećim brojem pesama potvrđuje se pretpostavka da outlier vrednosti ne potiču od pojedinačnih izvođača, već od velikih muzičkih izdavačkih kuća i distributera koji na svom kanalu objavljuju pesme mnogo različitih izvođača - najizraženiji primer je T-Series je jedan od najvećih muzičkih kanala na YouTube-u, predstavlja izdavačku kuću, a ne zvanični kanal jednog izvođača.
+
+
