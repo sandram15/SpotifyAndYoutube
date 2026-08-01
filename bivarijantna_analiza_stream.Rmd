@@ -14,8 +14,34 @@ library(dplyr)
 library(ggplot2)
 library(forcats)
 library(scales)
+library(reshape2) 
+library(tidyr)
+library(rstatix)
+
 
 data = read.csv('Spotify_Youtube.csv', header = T)
+
+shapiro_boot <- function(data, group_col, value_col) {
+  categories <- unique(data[[group_col]])
+  categories <- categories[!is.na(categories)]
+
+  lapply(categories, function(cat) {
+    values <- na.omit(data[[value_col]][data[[group_col]] == cat])
+
+    if (length(values) > 3) {
+      p_values <- replicate(500, shapiro.test(sample(values, min(3000, length(values))))$p.value)
+      p_mean <- mean(p_values)
+
+      if (p_mean > 0.05) {
+        sprintf("Varijabla %s po %s kategoriji ima normalnu raspodelu.", value_col, as.character(cat))
+      } else {
+        sprintf("Varijabla %s po %s kategoriji nema normalnu raspodelu.", value_col, as.character(cat))
+      }
+    } else {
+      sprintf("Varijabla %s po %s kategoriji ima manje od 3 observacije.", value_col, as.character(cat))
+    }
+  })
+}
 ```
 
 ## Bivarijatna analiza - Streams
@@ -65,10 +91,171 @@ top_bayes_artists
 ggplot(top_bayes_artists,
        aes(x = fct_reorder(Artist, bayesian_avg),
            y = bayesian_avg)) +
-  geom_col(fill = "#1DB954") +
+  geom_col(fill = "steelblue") +
   coord_flip() +
   scale_y_continuous(labels = label_number(scale = 1e-9, suffix = "B" )) +
   labs(title = "Top 15 izvođača", x = "Izvođač", y = "Prosek stream-ova") +
-  theme_minimal(base_size = 13) + theme(plot.title = element_text(face = "bold"), axis.text.y = element_text(size = 10))
+  theme_minimal(base_size = 13) + theme(axis.text.y = element_text(size = 10))
 ```
+Ono što možemo videti na ovom grafiku je da se vrednosti kod 15 najboljih izvođača kreću u sličnom, relativno uskom rasponu, bez drastičnog pada od prvog ka poslednjem mestu na listi. Ono što je problem za korišćenje ovo kolone za predviđanje je da se ne može koristiti direktno kao kategorijska promenljiva, zbog velike količine različitih vrednosti koja se nalazi u ovoj koloni, pa bi enkodiranje same kolone napravilo poprilično kompleksan model.
+
+### Numeričke promenljive
+
+Kako je u okviru univarijantne analize zaključeno da numeričke promenljive (Stream, Views, Likes, Comments) nisu normalno raspodeljene, koristićemo Spearman koeficijent korelacije, jer je otporan na monotone transformacije i outlier-e.
+
+```{r fig.width=10, fig.height=8}
+corr[lower.tri(corr)] <- NA
+corr.melt <- melt(corr, na.rm = TRUE)
+
+ggplot(corr.melt, aes(x = Var1, y = Var2, fill = value)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = round(value, 2)), size = 3.5) +
+  scale_fill_distiller(palette = "PRGn", type = "div", limits = c(-1, 1)) +
+  theme_minimal(base_size = 13) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  coord_fixed() +
+  labs(title = "Heatmap korelacija - Stream i numericke promenljive", x = "", y = "", fill = "Corr")
+```
+Na osnovu matrice korelacija, možemo videti da promenljive koje odskaču po jačini veze sa Stream-om su **Views** i **Likes**, obe sa p = 0.61, a **Comments** je u vezi p = 0.57. Ono što je zajedničko za ove tri promenljive je da sve predstavljaju neku meru popularnosti na različitim platformama, tako da je očekivano da ove promenljive budu povezane. Ono što je bitno primetiti za ove 3 promenljive jeste izuzetno jako multikolinearnost - sve tri kolone imaju koeficijent korelacije veći od 0.9, što znači da ćemo prilikom kreiranja modela morati da rešimo ovaj problem odabirom određenih kolone koje ćemo koristiti za predikciju. Pored toga, Views, Likes i Comments su promenljive koje se takođe mogu meriti tek nakon nastanka pesme. 
+
+Audio karakteristike su znatno slabije korelisane sa Stream-om, pri čemu nijedna od kolona koja pripada ovoj kategoriji ne prelazi vrednost od 0.14.  Zaključak koji možemo izvući iz ovoga jeste da to kako pesma zvuči ima mali uticaj na njenu popularnost. Da bi se vrednost ovih promenljivih ipak nekako iskoristila, možemo isprobati feature engineering i kreiranje neke kombinacije i kategorizacije ovih kolona kako bi se eventualno postigla veća korelacija. 
+
+
+### Album_type
+
+Prvo ispitujemo da li se broj stream-ova razlikuje u zavisnosti od tipa albuma na kome se pesma nalazi (album, single, compilation).
+
+```{r}
+data %>%
+  group_by(Album_type) %>%
+  summarise(
+    Count = n(),
+    Mean_Stream = mean(Stream, na.rm = TRUE),
+    Median_Stream = median(Stream, na.rm = TRUE),
+    Std_Stream = sd(Stream, na.rm = TRUE),
+    IQR_Stream = IQR(Stream, na.rm = TRUE)
+  ) %>%
+  arrange(desc(Median_Stream))
+```
+
+Opisna statistika pokazuje da pesme objavljene u okviru albuma (**album**) imaju najveću medijalnu vrednost broja stream-ova (56.69M), znatno ispred pesama objavljenih kao **single** (33.31M) i **compilation** (43.24M). U sve tri kategorijestandardna devijacija je nekoliko puta veća od medijane (npr. kod albuma 260.5M naspram 56.7M), što ponovo potvrđuje izraženu desnu asimetriju unutar svake grupe pojedinačno, ne samo na nivou cele promenljive.
+
+
+```{r}
+ggplot(data, aes(x = Album_type, y = log1p(Stream), fill = Album_type)) +
+  geom_violin(trim = FALSE, alpha = 0.8) +
+  geom_boxplot(width = 0.1, outlier.shape = NA, alpha = 0.3) +
+  theme_minimal() +
+  labs(title = "Distribucija Stream-a po Album_type (log skala)", x = "Album_type", y = "log(Stream + 1)")
+```
+
+Violin plot na log skali dodatno oslikava ove razlike - sve tri distribucije su unimodalne i slične širine, ali se centar (medijana unutar boxplot-a) kod kategorije album vizuelno nalazi nešto više u odnosu na single. 
+
+```{r}
+set.seed(123)
+shapiro_boot(data, "Album_type", "Stream")
+```
+
+```{r}
+kruskal.test(Stream ~ Album_type, data = data)
+kruskal_effsize(Stream ~ Album_type, data = data)
+```
+
+Kruskal-Wallis test pokazuje statistički veoma značajnu razliku u broju stream-ova između tri kategorije Album_type. Međutim, effect size spada u kategoriju **malog** efekta prema rstatix klasifikaciji. Ono što je važno je činjenica  da kako u skupu imamo veliki broj opservacija, čak i male razlike između grupa lako prelaze prag statističke značajnosti, pa je problematično to što je effect size mali.
+
+
+### Licensed
+
+Pre nego što pređemo na analizu, važno je napomenuti da su **Licensed** i **official_video** promenljive koje opisuju YouTube video vezan za pesmu, a ne samu pesmu na Spotify-u. Kod Views, ove promenljive predstavljaju direktnu informaciju, kako licenciran video i zvaničan video spot utiču na to koliko će sam video biti vidljiv i  promovisan na YouTube platformi, pa je logično očekivati snažnu vezu.
+
+Kod Stream-a je veza indirektnija, jer ove promenljive ne utiču direktno na to koliko je pesma slušana na Spotify-u, već predstavljaju posredni pokazatelj, pesme sa zvaničnim, licenciranim video spotom su verovatno objavljene od strane izdavačkih kuća sa širom promocijom, što bi moglo da se prelije i na broj stream-ova.
+
+```{r}
+data_licensed <- data %>% filter(Licensed != "")
+
+data_licensed %>%
+  group_by(Licensed) %>%
+  summarise(
+    Count = n(),
+    Mean_Stream = mean(Stream, na.rm = TRUE),
+    Median_Stream = median(Stream, na.rm = TRUE),
+    Std_Stream = sd(Stream, na.rm = TRUE),
+    IQR_Stream = IQR(Stream, na.rm = TRUE)
+  ) %>%
+  arrange(desc(Median_Stream))
+```
+
+Opisna statistika pokazuje da pesme sa Licensed = True imaju veću medijalnu vrednost broja stream-ova (55.70M) u odnosu na Licensed = False (39.69M), razlika je od oko 1.4 puta. Kao i kod Album_type, standardna devijacija je nekoliko puta veća od medijane u obe grupe (267.7M naspram 55.7M kod True), što potvrđuje poznatu desnu asimetriju unutar svake kategorije.
+
+Vredi primetiti i da je uzorak neujednačen - grupa Licensed = True (14140 pesama) više je nego duplo veća od grupe False (6108 pesama), što treba imati na umu prilikom tumačenja rezultata testa koji sledi.
+
+```{r}
+ggplot(data_licensed, aes(x = Licensed, y = log1p(Stream), fill = Licensed)) +
+  geom_violin(trim = FALSE, alpha = 0.8) +
+  geom_boxplot(width = 0.1, outlier.shape = NA, alpha = 0.3) +
+  theme_minimal() +
+  labs(title = "Distribucija Stream-a po Licensed (log skala)", x = "Licensed", y = "log(Stream + 1)")
+```
+
+Violin plot potvrđuje razliku uočenu u opisnoj statistici, ali pokazuje da je ona na log skali vizuelno umerena - medijana kod Licensed = True je malo pomerena naviše u odnosu na False, dok oba oblika raspodele ostaju vrlo slična.
+
+```{r}
+set.seed(123)
+shapiro_boot(data_licensed, "Licensed", "Stream")
+```
+Rezultati bootstrap Shapiro-Wilk testa potvrđuju da Stream nema normalnu raspodelu ni u jednoj od dve kategorije Licensed (True, False), što opravdava korišćenje neparametarskog Mann-Whitney U testa.
+
+```{r}
+wilcox.test(Stream ~ Licensed, data = data_licensed)
+wilcox_effsize(Stream ~ Licensed, data = data_licensed)
+```
+
+Mann-Whitney test pokazuje statistički značajnu razliku između grupa, dok effect size iznosi r = 0.111, što prema rstatix klasifikaciji spada u kategoriju **malog** (*small*) efekta. Slično kao kod official_video, razlika je znatno skromnija nego kod Views promenljive, gde je Licensed pokazivao umerenu (*moderate*) praktičnu značajnost (r = 0.352). Ovo dodatno potvrđuje da, iako licenciran sadržaj u proseku ima nešto veći broj stream-ova, ta veza je praktično slaba i Licensed status verovatno neće biti naročito koristan prediktor za Stream.
+
+### official_video
+
+```{r}
+data_video <- data %>% filter(official_video != "")
+
+data_video %>%
+  group_by(official_video) %>%
+  summarise(
+    Count = n(),
+    Mean_Stream = mean(Stream, na.rm = TRUE),
+    Median_Stream = median(Stream, na.rm = TRUE),
+    Std_Stream = sd(Stream, na.rm = TRUE),
+    IQR_Stream = IQR(Stream, na.rm = TRUE)
+  ) %>%
+  arrange(desc(Median_Stream))
+```
+
+Pesme sa zvaničnim video spotom (official_video = True) imaju veću medijalnu vrednost broja stream-ova (54.56M) u odnosu na one bez njega (38.05M) - razlika od oko 1.4 puta, praktično identična razlici koju smo dobili kod Licensed promenljive. Kod Views promenljive je official_video pokazivao čak i nešto izraženiju razliku od Licensed (preko 13 puta), dok se ovde  razlike između dve promenljive gotovo poklapaju, što je u skladu sa ranijom napomenom da je uticaj oba faktora na Stream posredniji i slabiji nego njihov uticaj na Views. Kao i u prethodnim slučajevima, standardna devijacija (262.9M kod True) višestruko premašuje medijanu, potvrđujući izraženu desnu asimetriju unutar obe kategorije.
+
+
+```{r}
+ggplot(data_video, aes(x = official_video, y = log1p(Stream), fill = official_video)) +
+  geom_violin(trim = FALSE, alpha = 0.8) +
+  geom_boxplot(width = 0.1, outlier.shape = NA, alpha = 0.3) +
+  theme_minimal() +
+  labs(title = "Distribucija Stream-a po official_video (log skala)", x = "official_video", y = "log(Stream + 1)")
+```
+
+Violin plot pokazuje sličan obrazac kao kod Licensed - medijana kod official_video = True je blago pomerena naviše u odnosu na False, ali se 
+oblici i raspon obe distribucije u velikoj meri preklapaju. Razdvojenost grupa je vizuelno umerena, bez drastične vizuelne razlike kakva je uočena kod Views promenljive za istu kategorijsku varijablu.
+
+```{r}
+set.seed(123)
+shapiro_boot(data_video, "official_video", "Stream")
+```
+
+Rezultati bootstrap Shapiro-Wilk testa potvrđuju da Stream nema normalnu raspodelu ni u jednoj od dve kategorije official_video (True, False), što opravdava korišćenje neparametarskog Mann-Whitney U testa.
+
+```{r}
+wilcox.test(Stream ~ official_video, data = data_video)
+wilcox_effsize(Stream ~ official_video, data = data_video)
+```
+Mann-Whitney test pokazuje statistički značajnu razliku između grupa (interaktivni izlaz nije prikazan u celosti, ali effect size tabela to 
+implicitno potvrđuje), dok effect size iznosi r = 0.107, što prema rstatix klasifikaciji spada u kategoriju **malog** (*small*) efekta. Za razliku od Views promenljive, gde je official_video pokazivao umerenu (*moderate*) praktičnu značajnost (r = 0.364), ovde je veza znatno slabija - iako pesme sa zvaničnim video spotom u proseku imaju veći broj stream-ova, ta razlika je praktično skromna i official_video se ne izdvaja kao naročito jak prediktor za Stream, za razliku od uloge koju ima kod predviđanja Views-a.
+
+
 
