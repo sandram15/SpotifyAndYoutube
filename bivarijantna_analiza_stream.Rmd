@@ -99,6 +99,30 @@ ggplot(top_bayes_artists,
 ```
 Ono što možemo videti na ovom grafiku je da se vrednosti kod 15 najboljih izvođača kreću u sličnom, relativno uskom rasponu, bez drastičnog pada od prvog ka poslednjem mestu na listi. Ono što je problem za korišćenje ovo kolone za predviđanje je da se ne može koristiti direktno kao kategorijska promenljiva, zbog velike količine različitih vrednosti koja se nalazi u ovoj koloni, pa bi enkodiranje same kolone napravilo poprilično kompleksan model.
 
+### Channel
+
+Pored Artist-a, u skup podataka je uključen i Channel, YouTube kanal na kome je pesma objavljena. Iako Channel nije direktan uzrok popularnosti pesme na Spotify-u, i dalje vredi proveriti da li ova promenljiva nosi neku korisnu informaciju ili je redudantna u kombinaciji sa kolonom Artist.
+
+```{r}
+global_avg <- mean(data$Stream, na.rm = TRUE)
+m <- 5
+
+top_bayes_channels <- data %>%
+  group_by(Channel) %>%
+  summarise(
+    broj_pesama = n(),
+    total_streams = sum(Stream, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(bayesian_avg = (m * global_avg + total_streams) / (m + broj_pesama)) %>%
+  arrange(desc(bayesian_avg)) %>%
+  slice_head(n = 15)
+
+top_bayes_channels
+```
+
+Rang-lista top 15 kanala prema Bajesovom proseku u velikoj meri odgovara ranije dobijenoj top 15 listi izvođača, jer 13 od 15 kanala pripada istim izvođačima koji su se našli i na Artist rang-listi, pa su bilo kakve promene koje bi ova kolona mogla napraviti u uticaju na Stream male i zanemarljive.
+
 ### Numeričke promenljive
 
 Kako je u okviru univarijantne analize zaključeno da numeričke promenljive (Stream, Views, Likes, Comments) nisu normalno raspodeljene, koristićemo Spearman koeficijent korelacije, jer je otporan na monotone transformacije i outlier-e.
@@ -119,6 +143,38 @@ ggplot(corr.melt, aes(x = Var1, y = Var2, fill = value)) +
 Na osnovu matrice korelacija, možemo videti da promenljive koje odskaču po jačini veze sa Stream-om su **Views** i **Likes**, obe sa p = 0.61, a **Comments** je u vezi p = 0.57. Ono što je zajedničko za ove tri promenljive je da sve predstavljaju neku meru popularnosti na različitim platformama, tako da je očekivano da ove promenljive budu povezane. Ono što je bitno primetiti za ove 3 promenljive jeste izuzetno jako multikolinearnost - sve tri kolone imaju koeficijent korelacije veći od 0.9, što znači da ćemo prilikom kreiranja modela morati da rešimo ovaj problem odabirom određenih kolone koje ćemo koristiti za predikciju. Pored toga, Views, Likes i Comments su promenljive koje se takođe mogu meriti tek nakon nastanka pesme. 
 
 Audio karakteristike su znatno slabije korelisane sa Stream-om, pri čemu nijedna od kolona koja pripada ovoj kategoriji ne prelazi vrednost od 0.14.  Zaključak koji možemo izvući iz ovoga jeste da to kako pesma zvuči ima mali uticaj na njenu popularnost. Da bi se vrednost ovih promenljivih ipak nekako iskoristila, možemo isprobati feature engineering i kreiranje neke kombinacije i kategorizacije ovih kolona kako bi se eventualno postigla veća korelacija. 
+
+### Likes
+
+```{r}
+cor.test(data$Stream, data$Likes, method = "spearman")
+```
+
+```{r}
+ggplot(data, aes(x = log1p(Likes), y = log1p(Stream))) +
+  geom_point(alpha = 0.2, color = "steelblue") +
+  geom_smooth(method = "loess", color = "red", se = FALSE) +
+  theme_minimal() +
+  labs(title = "Stream naspram Likes (log skala)", x = "log(Likes + 1)", y = "log(Stream + 1)")
+```
+Formalni test potvrđuje ono što smo uočili u heatmapi, odnosno da korelacija između 
+Stream-a i Likes iznosi ρ = 0.61, uz p-vrednost znatno manju od 0.05 (p < 2.2e-16), što ukazuje na statistički veoma značajnu vezu. Scatter plot na log skali dodatno pokazuje da veza nije strogo linearna kroz ceo opseg - u zoni nižih vrednosti Likes-a kriva raste  sporije i blago, dok posle određene tačke (log(Likes+1) ≈ 10) prelazi u  strmiji rast, što ukazuje da razlike u broju stream-ova postaju izraženije tek kod pesama sa značajnijim brojem lajkova. 
+
+### Comments
+
+```{r}
+cor.test(data$Stream, data$Comments, method = "spearman")
+```
+
+```{r}
+ggplot(data, aes(x = log1p(Comments), y = log1p(Stream))) +
+  geom_point(alpha = 0.2, color = "steelblue") +
+  geom_smooth(method = "loess", color = "red", se = FALSE) +
+  theme_minimal() +
+  labs(title = "Stream naspram Comments (log skala)", x = "log(Comments + 1)", y = "log(Stream + 1)")
+```
+Formalni test potvrđuje umerenu do jaku pozitivnu korelaciju između Stream-a i Comments (ρ = 0.568, p < 2.2e-16), malo slabiju od one dobijene za Likes (ρ = 0.611). Scatter plot na log skali otkriva jasan S-oblik krive, kod pesama sa niskim brojem komentara (uočljiva gusta vertikalna traka tačaka oko log(Comments+1) = 0, koja odgovara pesmama bez ijednog komentara) broj stream-ova i dalje značajno varira, što znači da odsustvo komentara samo po sebi ne govori mnogo o popularnosti pesme. Nakon te tačke kriva ubrzano raste sve do log(Comments+1) ≈ 10-12, gde počinje da se ravna, ukazujući na mogući efekat zasićenja - iznad određenog broja komentara dodatni komentari više ne prate proporcionalan rast broja stream-ova
+
 
 
 ### Album_type
@@ -254,8 +310,18 @@ Rezultati bootstrap Shapiro-Wilk testa potvrđuju da Stream nema normalnu raspod
 wilcox.test(Stream ~ official_video, data = data_video)
 wilcox_effsize(Stream ~ official_video, data = data_video)
 ```
-Mann-Whitney test pokazuje statistički značajnu razliku između grupa (interaktivni izlaz nije prikazan u celosti, ali effect size tabela to 
-implicitno potvrđuje), dok effect size iznosi r = 0.107, što prema rstatix klasifikaciji spada u kategoriju **malog** (*small*) efekta. Za razliku od Views promenljive, gde je official_video pokazivao umerenu (*moderate*) praktičnu značajnost (r = 0.364), ovde je veza znatno slabija - iako pesme sa zvaničnim video spotom u proseku imaju veći broj stream-ova, ta razlika je praktično skromna i official_video se ne izdvaja kao naročito jak prediktor za Stream, za razliku od uloge koju ima kod predviđanja Views-a.
+Mann-Whitney test pokazuje statistički značajnu razliku između grupa, dok effect size iznosi r = 0.107, što prema rstatix klasifikaciji spada u kategoriju **malog** (*small*) efekta. Za razliku od Views promenljive, gde je official_video pokazivao umerenu (*moderate*) praktičnu značajnost (r = 0.364), ovde je veza znatno slabija, iako pesme sa zvaničnim video spotom u proseku imaju veći broj stream-ova, ta razlika je skromna i official_video se ne izdvaja kao naročito jak prediktor za Stream.
 
+## Zaključak bivarijantne analize nad kolonom Stream
 
+Sprovedena bivarijantna analiza omogućila je uvid u to koje promenljive imaju potencijal da budu korisni prediktori broja stream-ova na Spotify-u, a koje ne.
 
+**Izvođač i kanal.** Artist se izdvaja kao promenljiva sa jasnim, uzročno smislenim uticajem na Stream - top izvođači predstavljaju konstantno popularne izvođače. Zbog velikog broja jedinstvenih vrednosti, Artist nije pogodan za direktno korišćenje u modelu bez odgovarajućeg enkodiranja. Channel, iako inicijalno uveden kao potencijalno koristan izvor informacije, pokazao se kao u velikoj meri redundantan u odnosu na Artist.
+
+**Mere popularnosti sa YouTube-a.** Views, Likes i Comments pokazuju umerenu do jaku pozitivnu korelaciju sa Stream-om (ρ između 0.57 i 0.61), što je očekivano s obzirom da sve promenljive, mere popularnost iste pesme. Međutim, ove tri promenljive su i međusobno izuzetno jako korelisane, što ukazuje na ozbiljnu multikolinearnost - u model bi ih trebalo uvoditi selektivno, a ne sve tri odjednom. Dodatno, sve tri nose rizik od data leakage-a, jer se mere u istom vremenskom okviru kao i sam Stream, a ne kao informacija dostupna unapred u trenutku objavljivanja pesme.
+
+**Audio karakteristike.** Nijedna audio karakteristika ne prelazi korelaciju od |0.14| sa Stream-om, što ukazuje da to kako pesma zvuči ima slab uticaj na njenu popularnost, što znači da komercijalni uspeh pesme verovatno je pretežno određen faktorima van same audio produkcije. Eventualni feature engineering nad ovim kolonama je pravac koji će biti istražen u okviru narednih koraka.
+
+**Kategorijske promenljive.** Album_type, Licensed i official_video pokazuju statistički značajne, ali praktično male razlike u broju stream-ova (effect size u rasponu 0.02-0.11). Ovo je posebno izraženo kod Licensed i official_video, koje opisuju status YouTube videa pesme, a ne samu pesmu na Spotify-u - njihov uticaj na Stream je stoga posredan i znatno slabiji nego što bi bio na Views, gde bi se očekivala direktnija veza.
+
+**Opšti zaključak.** Od svih razmatranih grupa promenljivih, mere popularnosti sa YouTube-a i identitet izvođača pokazuju najizraženiju vezu sa brojem stream-ova, dok audio karakteristike i kategorijske promenljive vezane za YouTube video imaju znatno skromniju prediktivnu vrednost.
