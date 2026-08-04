@@ -99,6 +99,65 @@ ggplot(top_bayes_artists,
 ```
 Ono što možemo videti na ovom grafiku je da se vrednosti kod 15 najboljih izvođača kreću u sličnom, relativno uskom rasponu, bez drastičnog pada od prvog ka poslednjem mestu na listi. Ono što je problem za korišćenje ovo kolone za predviđanje je da se ne može koristiti direktno kao kategorijska promenljiva, zbog velike količine različitih vrednosti koja se nalazi u ovoj koloni, pa bi enkodiranje same kolone napravilo poprilično kompleksan model.
 
+Da bismo ipak proverili da li identitet izvođača nosi korisnu informaciju o broju stream-ova, umesto poređenja pojedinačnih izvođača (što nije statistički smisleno, jer se mоže desiti da neki izvođači imaju znatno manji broj pesama od ostalih), formiraćemo dve grupe: **Top 50** izvođača prema Bajesovom proseku i **Ostali**. Na ovaj način testiramo užu, ali korisniju hipotezu - da li pripadnost grupi uspešnih izvođača nosi podatak o broju stream-ova, pa da na ovaj način isprobamo korišćenje promenljive Artist za predviđanje stream-ova.
+
+```{r}
+top_n = 50
+
+top_artists_names <- data %>%
+  group_by(Artist) %>%
+  summarise(broj_pesama = n(), total_streams = sum(Stream, na.rm = TRUE), .groups = "drop") %>%
+  mutate(bayesian_avg = (m * global_avg + total_streams) / (m + broj_pesama)) %>%
+  arrange(desc(bayesian_avg)) %>%
+  slice_head(n = top_n) %>%
+  pull(Artist)
+
+data_artist_group <- data %>%
+  mutate(Artist_group = ifelse(Artist %in% top_artists_names, "Top", "Ostali")) %>%
+  filter(!is.na(Stream))
+
+data_artist_group %>%
+  group_by(Artist_group) %>%
+  summarise(
+    Count = n(),
+    Mean_Stream = mean(Stream, na.rm = TRUE),
+    Median_Stream = median(Stream, na.rm = TRUE),
+    Std_Stream = sd(Stream, na.rm = TRUE),
+    IQR_Stream = IQR(Stream, na.rm = TRUE)
+  ) %>%
+  arrange(desc(Median_Stream))
+```
+
+Opisna statistika pokazuje da umetnici koji se spadaju u grupu od top 50, imaju više od 10 puta veći medijalni broj stream-ova, što je prilično velika razlika.
+
+```{r}
+ggplot(data_artist_group, aes(x = Artist_group, y = log1p(Stream), fill = Artist_group)) +
+  geom_violin(trim = FALSE, alpha = 0.8) +
+  geom_boxplot(width = 0.1, outlier.shape = NA, alpha = 0.3) +
+  theme_minimal() +
+  labs(title = "Distribucija Stream-a: Top 50 izvođača vs Ostali (log skala)",
+       x = "Grupa izvođača", y = "log(Stream + 1)")
+```
+
+Violin plot na log skali pokazuje da je medijana grupe Top vidljivo postavljena naviše u odnosu na drugu grupu, a raspodela Top grupe je uža i koncentrisana oko viših vrednosti. Grupa Ostali ima znatno širi raspon, kako obuhvata i izvođače sa mnogo manjim brojem stream-ova.
+
+Pre izbora statističkog testa, proveravamo normalnost raspodele Stream-a unutar svake od dve grupe pomoću bootstrap Shapiro-Wilk testa.
+
+
+```{r}
+set.seed(123)
+shapiro_boot(data_artist_group, "Artist_group", "Stream")
+```
+
+Kako se i očekivalo, s obzirom na to da Stream nije normalno raspodeljena ni na nivou cele promenljive, rezultati potvrđuju da nema normalne raspodele ni u jednoj od dve grupe, što opravdava korišćenje neparametarskog Mann-Whitney U testa.
+
+```{r}
+wilcox.test(Stream ~ Artist_group, data = data_artist_group)
+wilcox_effsize(Stream ~ Artist_group, data = data_artist_group)
+```
+
+Mann-Whitney test pokazuje statistički veoma značajnu razliku između grupe Top izvođača i Ostalih. Effect size iznosi r = **0.234**, što prema rstatix klasifikaciji spada u kategoriju malog efekta. Ovo ukazuje da pripadnost grupi popularnih izvođača nosi izvesnu, ali ograničenu prediktivnu informaciju o broju stream-ova.
+
 ### Channel
 
 Pored Artist-a, u skup podataka je uključen i Channel, YouTube kanal na kome je pesma objavljena. Iako Channel nije direktan uzrok popularnosti pesme na Spotify-u, i dalje vredi proveriti da li ova promenljiva nosi neku korisnu informaciju ili je redudantna u kombinaciji sa kolonom Artist.
