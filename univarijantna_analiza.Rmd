@@ -99,6 +99,7 @@ ggplot(data, aes(x = log(Stream))) +
 ```
 Nakon izvršene logaritamske transformacije, distribucija stream-ova postala je više simetrična i bliža je normalnoj raspodeli, što nam omogućava stabilniju analizu odnosa Stream-a i ostalih promenljivih.
 
+
 ### Views
 
 ```{r}
@@ -114,7 +115,7 @@ ggplot(data, aes(x = Views)) +
     ) + 
   theme_minimal()
 ```
-Na osnovu histograma možemo zaključiti da i kod kolone Views postoji ista problematika kao i kod Stream, odnosno desna asimetrija. Da bismo ovu kolonu učinili lakšom za analizu i upoređivanju sa drugim kolonama, koristićemo istu metodologiju za rešavanja - logaritamsku transformaciju. Kako bismo sa sigurnošću potvrdili
+Na osnovu histograma možemo zaključiti da i kod kolone Views postoji ista problematika kao i kod Stream, odnosno desna asimetrija. Da bismo ovu kolonu učinili lakšom za analizu i upoređivanju sa drugim kolonama, koristićemo istu metodologiju za rešavanja - logaritamsku transformaciju. Kako bismo sa sigurnošću potvrdili asimetriju.
 
 ```{r}
 data %>%
@@ -126,7 +127,7 @@ data %>%
     kurtosis = kurtosis(Views, na.rm = TRUE)
   )
 ```
-Kao što možemo videti, ovde je situacija identična kao kod Stream - jako visok vrednost vrednosti skew i pozitivna vrednost kurtosis-a ukazuje nam na jaku desnu asimetričnost.
+Kao što možemo videti, ovde je situacija identična kao kod Stream - jako visoka vrednost skew i pozitivna vrednost kurtosis-a ukazuje nam na jaku desnu asimetričnost.
 
 ```{r}
 ggplot(data, aes(x = log(Views))) +
@@ -140,13 +141,53 @@ ggplot(data, aes(x = log(Views))) +
 ```
 Nakon logaritamske transformacije, kao i kod Stream promenljive, distribucija je bliža normalnoj.
 
-### Audio karakteristike
 
-Kako bismo lakše pregledali karakteristike kolona koje predstavljaju audio karakteristike, pregledaćemo ih kolektivno, jer ove kolone (Danceability, Energy, Loudness, Speechiness, 
-Acousticness, Instrumentalness, Liveness, Valence, Tempo) predstavljaju numeričke promenljive slične prirode - opisuju zvučne karakteristike pesme.
+### Najpopularnije pesme
+
+Korisno je pogledati koje su konkretno pesme na vrhu liste po Stream-u, kako bismo sagledali neke osnovne osobine najslušanijih pesama, kao i da li postoje neke ekstremne vrednosti, kao i kako ove pesme stoje sa vrednostima kolone Views, što ćemo izvršiti pregledom top 15 pesama na listi.
 
 ```{r}
-audio_cols <- c("Danceability", "Energy", "Loudness", "Speechiness","Acousticness", "Instrumentalness", "Liveness", "Valence", "Tempo")
+top_songs <- data %>%
+  filter(!is.na(Stream)) %>%
+  arrange(desc(Stream)) %>%
+  select(Track, Artist, Stream, Views, Album_type, Licensed, official_video) %>%
+  slice_head(n = 15)
+
+top_songs
+```
+
+Vrednosti Views u top 15 pesama generalno prate visok Stream, uz izuzetak pesme "One Dance" (Drake), koja ima relativno nizak broj Views u poređenju sa ostalim pesmama na listi.
+
+Zanimljivo je i da se pesma "Sunflower - Spider-Man: Into the Spider-Verse" pojavljuje dva puta, jednom pripisana Swae Lee-ju, a jednom Post Malone-u (koautori pesme), sa identičnim brojem Stream-ova ali različitim brojem Views-a. Ovo pokazujr da je ista pesma unesena kao dva odvojena reda, po jedan za svakog izvođača.
+
+Dodatno, zarad detaljnije analize, prikazujemo i prosečne audio karakteristike ovih 15 pesama u odnosu na prosek celog dataseta, kako bismo okvirno sagledali koje kolone imaju potencijala da utiču na popularnost, iako je ovo jako mali uzorak.
+```{r}
+audio_cols <- c("Danceability", "Energy", "Loudness", "Speechiness",
+                 "Acousticness", "Instrumentalness", "Liveness", "Valence", "Tempo")
+
+comparison <- data %>%
+  filter(!is.na(Stream)) %>%
+  arrange(desc(Stream)) %>%
+  slice_head(n = 15) %>%
+  select(all_of(audio_cols)) %>%
+  summarise(across(everything(), mean, na.rm = TRUE)) %>%
+  mutate(Group = "Top 15") %>%
+  bind_rows(
+    data %>%
+      select(all_of(audio_cols)) %>%
+      summarise(across(everything(), mean, na.rm = TRUE)) %>%
+      mutate(Group = "Ceo dataset")
+  )
+
+comparison
+```
+
+### Audio karakteristike
+
+Kako bismo lakše pregledali karakteristike kolona koje predstavljaju audio karakteristike, pregledaćemo ih kolektivno, jer ove kolone (Danceability, Energy, Loudness, Speechiness, Acousticness, Instrumentalness, Liveness, Valence, Tempo, Duration_ms) predstavljaju numeričke promenljive slične prirode - opisuju zvučne karakteristike pesme.
+
+```{r}
+audio_cols <- c("Danceability", "Energy", "Loudness", "Speechiness","Acousticness", "Instrumentalness", "Liveness", "Valence", "Tempo", "Duration_ms")
 
 data %>%
   select(all_of(audio_cols)) %>%
@@ -161,8 +202,9 @@ Kolone **Acousticness, Instrumentalness, Speechiness i Liveness** pokazuju izra�
 
 Kolona **Loudness** pokazuje levu asimetriju, sa koncentracijom vrednosti blizu maksimuma (0 dB), što ukazuje na trend glasnije produkcije.
 
-Kolone **Danceability, Energy, Valence i Tempo** pokazuju raspodele najbliže 
-normalnoj, bez izraženih odstupanja koja bi zahtevala transformaciju.
+Kolone **Danceability, Energy, Valence i Tempo** pokazuju raspodele najbliže normalnoj, bez izraženih odstupanja koja bi zahtevala transformaciju.
+
+Kolona **Duration_ms** pokazuje izraženu desnu asimetriju sa ekstremnim outlier-ima koji rasteže skalu grafika, za razliku od ostalih audio kolona, ovde bi log transformacija imala smisla.
 
 Za kolone čiji se opseg kreće od 0 do 1, nema preteranog smisla raditi logaritamsku transformaciju, tako da bi eventualno imale smisla transformacije feature engineering-om kao što je uvođenje binarne promenljive koja predstavlja da li pesma ima ili nema određenu osobinu.
 
@@ -255,5 +297,6 @@ data %>%
 ```
 
 Uvidom u kanale sa najvećim brojem pesama potvrđuje se pretpostavka da outlier vrednosti ne potiču od pojedinačnih izvođača, već od velikih muzičkih izdavačkih kuća i distributera koji na svom kanalu objavljuju pesme mnogo različitih izvođača - najizraženiji primer je T-Series je jedan od najvećih muzičkih kanala na YouTube-u, predstavlja izdavačku kuću, a ne zvanični kanal jednog izvođača.
+
 
 
