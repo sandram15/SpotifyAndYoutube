@@ -1,0 +1,268 @@
+---
+title: "feature_engineering"
+author: "Sandra Miladinovic"
+date: "2026-08-08"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(forcats)
+library(scales)
+library(reshape2) 
+library(tidyr)
+library(rstatix)
+
+
+data = read.csv('Spotify_Youtube.csv', header = T)
+```
+
+
+# Feature engineering
+
+## Artist
+
+Iz bivarijantne analize znamo da Artist ima uticaj na Stream, odnosno top izvođači su konstantno popularni, ali kolona ima previše jedinstvenih vrednosti da bi mogla direktno da se koristi u modelu bez enkodiranja.
+
+Prva pomisao je da iskoristimo prosečan (mean) Stream po izvođaču kao numerički feature, međutim ovaj pristup nosi rizik od data leakage-a, jer ako u prosek uključimo i Stream same pesme, ta pesma delimično "vidi" sopstvenu ciljnu vrednost kroz feature, što je posebno problematično kod izvođača sa svega par pesama u skupu.
+
+Takođe postoji mogućnost da prost broj pesama po izvođaču (frequency encoding) bude dovoljan, ali kako iz univarijantne analize znamo da skoro svaki izvođač ima tačno 10 pesama u skupu, ova kolona bi imala jako malo varijanse i nosila bi slab signal.
+
+Zbog toga se opredeljujemo za **leave-one-out (LOO) mean encoding** - za svaku pesmu računamo prosečan Stream *ostalih* pesama istog izvođača, bez trenutne pesme. Ovo hvata signal popularnosti izvođača bez curenja informacije o sopstvenoj vrednosti pesme.
+
+```{r}
+data <- data %>%
+  group_by(Artist) %>%
+  mutate(
+    Artist_n_pesama = n(),
+    Artist_LOO_stream = ifelse(
+      Artist_n_pesama > 1,
+      (sum(Stream) - Stream) / (Artist_n_pesama - 1),
+      NA
+    )
+  ) %>%
+  ungroup()
+
+data <- data %>%
+  mutate(Artist_LOO_stream = ifelse(is.na(Artist_LOO_stream), median(Stream, na.rm = TRUE), Artist_LOO_stream))
+data <- data %>%
+  group_by(Artist) %>%
+  mutate(
+    Artist_n_pesama = n(),
+    Artist_LOO_stream = ifelse(
+      Artist_n_pesama > 1,
+      (sum(Stream) - Stream) / (Artist_n_pesama - 1),
+      NA
+    )
+  ) %>%
+  ungroup()
+
+data <- data %>%
+  mutate(Artist_LOO_stream = ifelse(is.na(Artist_LOO_stream), median(Stream, na.rm = TRUE), Artist_LOO_stream))
+
+sum(is.na(data$Artist_LOO_stream))
+
+```
+Nakon kreiranja nove kolone, neophodno je i da proverimo kako će to uticati na našu ciljnu promenljivu - stream.
+
+```{r}
+cor.test(data$Artist_LOO_stream, data$Stream, method = "spearman")
+```
+Spearmanova korelacija potvrđuje umerenu do jaku pozitivnu vezu između Artist_LOO_stream i Stream, što znači da se Artist_LOO_stream pokazao kao jedan od najjačih pojedinačnih prediktora u skupu.
+
+```{r}
+data %>%
+  ggplot(aes(x = log1p(Artist_LOO_stream), y = log1p(Stream))) +
+  geom_point(alpha = 0.15, color = "steelblue") +
+  geom_smooth(method = "loess", color = "red", se = FALSE) +
+  theme_minimal() +
+  labs(title = "Stream naspram Artist LOO proseka (log skala)", x = "log(Artist_LOO_stream + 1)", y = "log(Stream + 1)")
+```
+## Engagement rate (Likes, Comments)
+
+Iz bivarijantne analize znamo da su Views, Likes i Comments međusobno izuzetno jako korelisani, što ukazuje na ozbiljnu multikolinearnost, pa ne bi trebalo da ih sve tri koristimo odjednom kao prediktore. Views zadržavamo kao glavni predstavnik YouTube popularnosti (najjača veza sa Stream-om, najkompletnija varijabla), dok od Likes i Comments pravimo relativne (rate) feature-e umesto sirovih brojeva, što će nam dati informaciju o tome koliko je publika angažovana prilikom gledanja videa.
+
+Napominjemo da Views, Likes i Comments i dalje nose rizik od data leakage-a, kako se mere u istom vremenskom okviru kao i sam Stream, a ne kao informacija dostupna unapred u trenutku objavljivanja pesme - ovo treba imati u vidu prilikom kasnijeg odabira finalnog skupa prediktora za model.
+
+```{r}
+data <- data %>%
+  mutate(
+    Likes_rate = ifelse(has_youtube & Views > 0, Likes / Views, 0),
+    Comments_rate = ifelse(has_youtube & Views > 0, Comments / Views, 0)
+  )
+
+summary(data$Likes_rate)
+summary(data$Comments_rate)
+```
+Za pesme bez YouTube videa (has_youtube = FALSE), Likes_rate i Comments_rate postavljamo na 0, kako smo ranije i za same kolone usvojili istu logiku prilikom rešavanja nedostajućih vrednosti.
+
+```{r}
+cor.test(data$Likes_rate, data$Stream, method = "spearman")
+cor.test(data$Comments_rate, data$Stream, method = "spearman")
+```
+
+## Mood kvadrant (Valence x Energy)
+
+Iz bivarijantne analize znamo da nijedna audio karakteristika pojedinačno ne prelazi korelaciju od |0.14| sa Stream-om, što ukazuje da to kako pesma zvuči ima slab pojedinačan uticaj na njenu popularnost. Umesto da posmatramo karakteristike izolovano, pokušavamo da ih kombinujemo na način koji ima muzikološki smisao, u nadi da kombinacija nosi jači signal od pojedinačnih kolona.
+
+Valence (pozitivnost/raspoloženje pesme) i Energy (intenzitet, aktivnost) su dve karakteristike koje se u muzičkoj psihologiji često kombinuju u tzv. kvadrant raspoloženja (Russell-ov cirkumpleks model afekta): visoka Valence + visoka Energy odgovara "srećnom/energičnom" raspoloženju, niska Valence + visoka Energy "ljutom/napetom", visoka Valence + niska Energy "smirenom/opuštenom", a niska Valence + niska Energy "tužnom/melanholičnom" raspoloženju. Ovakva kategorijska promenljiva bi mogla da uhvati nelinearnu interakciju između dve karakteristike koju pojedinačne korelacije ne mogu da vide.
+
+```{r}
+data <- data %>%
+  mutate(
+    Mood_kvadrant = case_when(
+      Valence >= 0.5 & Energy >= 0.5 ~ "Happy/Energetic",
+      Valence < 0.5 & Energy >= 0.5 ~ "Anger/Unpleasant",
+      Valence >= 0.5 & Energy < 0.5 ~ "Calm/Relaxing",
+      Valence < 0.5 & Energy < 0.5 ~ "Sad/Melancholic"
+    ),
+    Mood_kvadrant = factor(Mood_kvadrant)
+  )
+
+table(data$Mood_kvadrant)
+```
+
+
+```{r}
+kruskal.test(Stream ~ Mood_kvadrant, data = data)
+```
+```{r}
+ggplot(data, aes(x = Mood_kvadrant, y = log1p(Stream), fill = Mood_kvadrant)) +
+  geom_violin(trim = FALSE, alpha = 0.8) +
+  geom_boxplot(width = 0.1, outlier.shape = NA, alpha = 0.3) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 20, hjust = 1)) +
+  labs(title = "Distribucija Stream-a po mood kvadrantu (log skala)", x = "", y = "log(Stream + 1)")
+```
+```{r}
+kruskal_effsize(data, Stream ~ Mood_kvadrant)
+```
+Kruskal-Wallis test pokazuje statistički značajnu razliku u Stream-u između mood kvadranata, međutim effect size spada u kategoriju zanemarljivo malog (*small*) efekta. Sa preko 20000 opservacija, statistička značajnost je gotovo neizbežna čak i kod praktično beznačajnih razlika, pa se effect size pokazuje kao pouzdaniji pokazatelj stvarne prediktivne vrednosti.
+
+## Danceability i Energy
+
+Pošto je kombinacija Valence i Energy (Mood_kvadrant) pokazala zanemarljiv efekat, probaćemo drugu kombinaciju audio karakteristika koja ima neki smisao iz domenskog znanja, Danceability i Energy zajedno bi trebalo da opisuju koliko je pesma zabavna i energična, što je karakteristika koja pojedinačno nije uhvaćena nijednom od postojećih kolona. Umesto kategorijske podele kao kod mood kvadranta, pravimo feature množenjem dve vrednosti, kako bismo zadržali kontinualnu prirodu podataka.
+
+```{r}
+data <- data %>%
+  mutate(Party_index = Danceability * Energy)
+
+summary(data$Party_index)
+```
+```{r}
+cor.test(data$Party_index, data$Stream, method = "spearman")
+```
+```{r}
+cor.test(data$Danceability, data$Stream, method = "spearman")
+cor.test(data$Energy, data$Stream, method = "spearman")
+```
+
+Spearmanova korelacija pokazuje da Party_indeks ima nešto jaču vezu sa Stream-om nego njegove pojedinačne komponente, iako sve tri vrednosti ostaju u okviru slabog opsega korelacije koji je već utvrđen u bivarijantnoj analizi za audio karakteristike.
+
+## Binarna klasifikacija
+
+Pored kombinovanja karakteristika, Spotify-jeva zvanična dokumentacija predlaže konkretne pragove za pojedine audio karakteristike koji ukazuju na specifičnu vrstu sadržaja, npr Speechiness iznad 0.66 ukazuje da je numera pretežno govorni sadržaj, Instrumentalness iznad 0.5 ukazuje na instrumentalnu numeru bez vokala, a Liveness iznad 0.8 ukazuje na veliku verovatnoću da je snimak uživo izvođenje. Ove kategorije mogu da uhvate specifične podskupove pesama koje se ponašaju drugačije od "tipične" numere, a što kontinualna vrednost sama po sebi ne ističe dovoljno jasno.
+
+```{r}
+data <- data %>%
+  mutate(
+    Is_spoken = ifelse(Speechiness > 0.66, TRUE, FALSE),
+    Is_instrumental = ifelse(Instrumentalness > 0.5, TRUE, FALSE),
+    Is_live = ifelse(Liveness > 0.8, TRUE, FALSE)
+  )
+
+data %>%
+  summarise(
+    broj_spoken = sum(Is_spoken),
+    broj_instrumental = sum(Is_instrumental),
+    broj_live = sum(Is_live)
+  )
+```
+```{r}
+wilcox.test(Stream ~ Is_spoken, data = data)
+wilcox_effsize(Stream ~ Is_spoken, data = data)
+```
+```{r}
+wilcox.test(Stream ~ Is_instrumental, data = data)
+wilcox_effsize(Stream ~ Is_instrumental, data = data)
+```
+```{r}
+wilcox.test(Stream ~ Is_live, data = data)
+wilcox_effsize(Stream ~ Is_live, data = data)
+```
+Sve tri binarne klasifikacije pokazuju statistički značajnu, ali po rstatix klasifikaciji malu (small) razliku u Stream-u. Is_instrumental pokazuje relativno najizraženiji efekat, što pokazuje da instrumentalne numere sistematski imaju drugačiji medijalni broj stream-ova od numera sa vokalom. Ostale dve kolone imaju slabiji efekat.
+
+## Key (muzicki tonalitet)
+
+Key predstavlja muziki tonalitet pesme, kodiran kao ceo broj od 0 do 11, pri čemu vrednost -1 označava da tonalitet nije detektovan. Iako je Key tehnicki numericki kodiran, on je po prirodi kategorijska promenljiva - brojevi ne nose redosled ili magnitudu (tonalitet 5 nije "veci" od tonaliteta 2), pa ćemo ga tretirati kao faktor i testirati Kruskal-Wallis testom.
+
+```{r}
+data <- data %>%
+  mutate(Key_faktor = factor(Key))
+
+table(data$Key_faktor)
+```
+```{r}
+kruskal.test(Stream ~ Key_faktor, data = data)
+kruskal_effsize(data, Stream ~ Key_faktor)
+```
+
+```{r}
+ggplot(data, aes(x = Key_faktor, y = log1p(Stream), fill = Key_faktor)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.7) +
+  theme_minimal() +
+  labs(title = "Distribucija Stream-a po muzickom tonalitetu (log skala)", x = "Key", y = "log(Stream + 1)") +
+  theme(legend.position = "none")
+```
+
+Kruskal-Wallis test za Key_faktor pokazuje jako mali effect size, koji je zanemarljiv.
+
+## Kolaboracija (feat. u nazivu pesme)
+
+Pesme sa vise izvođača (ima "feat." ili "ft." u nazivu) mogle bi da imaju veći broj streamova, jer kombinuju publiku više izvođača Ovu informaciju možemo da uzmemo direktno iz Track kolone, pretragom teksta na oznake koje ukazuju na gostujuće izvođače.
+
+```{r}
+data <- data %>%
+  mutate(
+    Is_collab = grepl("feat\\.|ft\\.|featuring", Track, ignore.case = TRUE)
+  )
+
+table(data$Is_collab)
+```
+```{r}
+wilcox_effsize(Stream ~ Is_collab, data = data)
+```
+
+Ova kolona takođe pokazuje jako slabu povezanost sa kolonom Stream.
+
+## Licensed x official_video (kombinovana kategorija)
+
+Iz bivarijantne analize znamo da Licensed i official_video pojedinačno imaju mali, ali statistički značajan efekat na Stream, i da su međusobno povezane. Umesto da ih koristimo kao dve odvojene binarne kolone, kombinovaćemo ih u jednu kategorijsku promenljivu sa 4 nivoa.
+
+```{r}
+data <- data %>%
+  mutate(
+    Licensed_video_combo = case_when(
+      Licensed == "True" & official_video == "True" ~ "Licensed_official",
+      Licensed == "True" & official_video == "False" ~ "Licensed_unofficial",
+      Licensed == "False" & official_video == "True" ~ "Unlicensed_official",
+      Licensed == "False" & official_video == "False" ~ "Unlicensed_unofficial",
+      TRUE ~ NA_character_
+    ),
+    Licensed_video_combo = factor(Licensed_video_combo)
+  )
+
+table(data$Licensed_video_combo, useNA = "always")
+```
+```{r}
+kruskal.test(Stream ~ Licensed_video_combo, data = data)
+kruskal_effsize(data, Stream ~ Licensed_video_combo)
+```
+
+Kombinovana kategorija Licensed_video_combo pokazuje slab efekat na Stream, u skladu sa pojedinačnim efektima Licensed i official_video iz bivarijantne analize
+
