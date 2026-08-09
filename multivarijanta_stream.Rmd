@@ -1,0 +1,98 @@
+---
+title: "multivarijantna_analiza_stream"
+author: "Sandra Miladinovic"
+date: "2026-08-08"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(car)
+library(rstatix)
+
+data = read.csv('Spotify_Youtube.csv', header = T)
+```
+
+# Multivarijantna analiza
+
+Bivarijantna analiza i feature engineering su nam dali uvid u to kako se svaka promenljiva pojedinačno odnosi prema Stream-u. Multivarijantna analiza nam objašnjava kako potencijalni prediktori međusobno figurišu i pruža nam mogućnost da uočimo neka specifična ponašanja, kao što je na primer sinergija.
+
+## Izbor prediktora
+
+Na osnovu bivarijantne analize i feature engineering-a, za model biramo:
+
+- **Artist_LOO_stream** -  najjači pojedinačni prediktor
+- **Album_type** - iako je pojedinačni effect size zanemarljiv, zadržavamo ga u modelu jer u kombinaciji sa drugim prediktorima ipak može doprinositi objašnjenoj varijansi
+- **Audio karakteristike** - Danceability, Energy, Loudness, Speechiness, Acousticness, Instrumentalness, Liveness, Valence, Tempo, Duration_ms
+- **Youtube video podaci** - karaktestike Youtube videa, kako bismo videli kako se podaci sa jedne platforme ogledaju na podatke sa druge
+
+**Napomena o Views-u i data leakage-u.** Za razliku od ostalih prediktora, Views, Licensed i official_video nisu dostupni pre objave pesme - mere se u istom (ili kasnijem) vremenskom okviru kao i sam Stream. Ovde ih svesno uključujemo kao "video-side" signal popularnosti, uz svest da to model delimično pomera od čiste predikcije unapred ka delimično eksplanatornom modelu. Likes i Comments i dalje izostavljamo zbog najjačeg rizika od data leakage-a i redundantnosti sa Views-om.
+
+Kako je Stream jako desno asimetričan, modelujemo logaritamsku transformaciju kolone.
+
+## Provera multikolinearnosti (VIF)
+
+Pre nego što interpretiramo koeficijente, proveravamo da li su prediktori međusobno previše povezani, što bi destabilizovalo ocene koeficijenata i otežalo interpretaciju.
+
+Views, Licensed i official_video imaju smisla samo za pesme koje zaista imaju YouTube video, pa skup za modelovanje ograničavamo na te redove.
+
+```{r}
+model_baseline <- lm(
+  log1p(Stream) ~ Artist_LOO_stream + Album_type + official_video  + Licensed +
+    Danceability + Energy + Loudness + Speechiness + Acousticness +
+    Instrumentalness + Liveness + Valence + Tempo + Duration_ms + log1p(Views),
+  data = data_model
+)
+
+vif(model_baseline)
+```
+
+Kako nema VIF vrednosti iznad 5, možemo da zaključimo da neće doći do problema multikolinearnosti.
+
+## Osnovni multipli regresioni model
+
+```{r}
+summary(model_baseline)
+```
+
+R² za ovaj model je relativno dobre veličine, što znači da možemo računati da imamo neke kvalitetne prediktore u okviru odabranih, kao što je već primećeno u prethodnim analizama.
+
+
+### Dijagnostika modela
+
+```{r}
+par(mfrow = c(2, 2))
+plot(model_baseline)
+```
+
+Dijagnostički grafici pokazuju blago narušavanje pretpostavki linearne regresije, kako opadajući trend u Residuals vs Fitted i levi rep na Q-Q plotu ukazuju da reziduali nisu strogo normalni i da postoji blaga heteroskedastičnost. Nema opservacija sa ekstremno visokom Kukovom distancom, pa nijedan pojedinačni podatak drastično ne utiče na ocene koeficijenata, ali odstupanja od normalnosti treba navesti kao ograničenje modela.
+
+## Provera sinergije (interakcioni efekti)
+
+Do sada smo posmatrali samo glavne (aditivne) efekte - svaki prediktor doprinosi nezavisno. Sinergija bi značila da kombinacija dva prediktora ima veći (ili drugačiji) efekat nego što bi se očekivalo od prostog zbira njihovih pojedinačnih efekata. Testiramo dve interakcije koje imaju smisla iz domenskog znanja:
+
+- **Danceability:Energy** - da li "plesne i energične" pesme imaju neproporcionalno veći broj stream-ova (ovo je ista ideja kao Party_index iz feature engineering-a, ali ovde testiramo formalnu statističku značajnost interakcije unutar regresionog modela)
+- **Loudness:Energy** - da li kombinacija glasnoće i energije ("produkcijski intenzitet") nosi dodatni signal
+
+
+```{r}
+model_dance_energy <- lm(
+  log1p(Stream) ~ Artist_LOO_stream + Album_type + Licensed  + official_video + log1p(Views) + Danceability + Energy + Loudness + Speechiness + Acousticness +
+    Instrumentalness + Liveness + Valence + Tempo + Duration_ms + 
+    Danceability:Energy + Loudness:Energy,
+  data = data_model
+)
+
+summary(model_dance_energy)
+```
+
+```{r}
+anova(model_baseline, model_dance_energy)
+```
+F-test pokazuje statistički značajnu razliku, što potvrđuje da Danceability:Energy i Loudness:Energy interakcije zajedno nose dodatnu informaciju koju aditivni model ne hvata, tako da verovatno postoji neki oblik sinergije.
+
