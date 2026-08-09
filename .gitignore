@@ -3,3 +3,5 @@
 .Rproj.user/
 *.Rproj
 .html
+.Renviron
+artist_genres_cache.rds

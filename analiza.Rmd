@@ -1,0 +1,923 @@
+---
+title: "Analiza prediktora broja stream-ova (Stream) - čišćenje, feature engineering i multivarijantna analiza"
+author: "Katarina Dimitrijevic"
+date: "2026-08-06"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(moments)
+library(scales)
+library(reshape2)
+library(rstatix)
+library(psych)
+library(car)
+library(httr2)
+
+data <- read.csv("Spotify_Youtube.csv", header = T)
+```
+
+# Uvod
+
+Ovaj fajl objedinjuje čišćenje podataka, feature engineering i multivarijantnu analizu za ciljnu promenljivu **Stream** (broj stream-ova na Spotify-u). Odluke u nastavku se oslanjaju na zaključke već sprovedene univarijantne (`univarijantna_analiza.Rmd`) i bivarijantne analize (`bivarijantna_analiza_stream.Rmd`, `bivarijantna_analiza.Rmd`), pre svega:
+
+- **Stream** i **Views** su jako desno asimetrični (visok skew i kurtosis), pa se u modelovanju koristi `log1p()` transformacija.
+- **Artist** ima jasan uticaj na Stream, ali zbog velikog broja jedinstvenih vrednosti (>2000) zahteva enkodiranje (leave-one-out prosek).
+- **Views, Likes i Comments** su međusobno izuzetno jako korelisani (multikolinearnost) i nose rizik od data leakage-a, jer se mere u istom vremenskom okviru kao i sam Stream - u model ih uvodimo selektivno.
+- **Audio karakteristike** pojedinačno slabo koreliraju sa Stream-om (|ρ| < 0.14), pa se dodatno istražuju kroz feature engineering (kombinacije, pragovi).
+- **Licensed** i **official_video** imaju posredan, mali do umeren uticaj na Stream.
+
+Kako nam je krajnji cilj predikcija Stream-a, a interesuje nas i koliko YouTube strana podataka (Views, Licensed, official_video) doprinosi objašnjenju Stream-a preko onoga što audio karakteristike i identitet izvođača već nose, multivarijantna analiza na kraju ovog fajla poredi **dva** regresiona modela - jedan bez YouTube atributa i jedan sa njima. Ovo su i dalje inferencijalni (objašnjavajući) modeli, ne prediktivni ML modeli - nema train/test podele niti ocene tačnosti, to ostaje za kasniju fazu.
+
+# Čišćenje podataka
+
+## Duplikati
+
+Poređenje celog reda ili grubog (lowercase) naziva pesme - kao u `ciscenje_podataka.Rmd` - ne hvata dva realna slučaja: (1) pravi duplikat po Spotify-jevom stvarnom jedinstvenom ključu (`Uri`), i (2) "istu" pesmu čiji naziv nosi dodatni sufiks (npr. "(Live)", "(Remastered 2011)", "- Radio Edit"), koji grubo poređenje teksta neće prepoznati kao povezano. Proveravamo sve tri stvari.
+
+```{r}
+data %>%
+  filter(duplicated(.)) %>%
+  nrow()
+```
+
+Nema potpuno identičnih redova. Dalje proveravamo `Uri` - Spotify-jev pravi jedinstveni identifikator pesme (naziv, za razliku od njega, nije garantovano jedinstven).
+
+```{r}
+data %>%
+  count(Uri) %>%
+  filter(n > 1) %>%
+  nrow()
+```
+
+Nema duplikata ni po `Uri`. Sada tražimo "skrivene" duplikate koje sirovo poređenje naziva propušta - iste pesme sa različitim sufiksom (remaster, live, radio edit...).
+
+```{r}
+normalize_track <- function(track) {
+  track %>%
+    str_to_lower() %>%
+    str_remove_all("\\s*\\((feat|ft)\\.?[^)]*\\)|\\s*\\(with[^)]*\\)") %>%
+    str_remove_all("\\s*-\\s*(remaster(ed)?(\\s*\\d{4})?|radio edit|live( version)?|acoustic( version)?|single version|album version|bonus track|mono|stereo|explicit|clean version)\\b.*$") %>%
+    str_remove_all("\\s*\\((remaster(ed)?(\\s*\\d{4})?|live|acoustic|radio edit|bonus track|explicit|clean version)\\)") %>%
+    str_trim()
+}
+
+data <- data %>% mutate(Track_normalized = normalize_track(Track))
+
+skriveni_duplikati <- data %>%
+  mutate(Artist_lower = tolower(Artist), Track_lower = tolower(Track)) %>%
+  group_by(Artist_lower, Track_normalized) %>%
+  filter(n() > 1, n_distinct(Track_lower) > 1) %>%
+  ungroup() %>%
+  arrange(Artist_lower, Track_normalized) %>%
+  select(Artist, Track, Track_normalized, Album, Stream, Views)
+
+nrow(skriveni_duplikati)
+skriveni_duplikati
+```
+
+Filter `n_distinct(Track_lower) > 1` namerno zadržava samo grupe gde je normalizacija spojila **različito napisane** nazive - dakle isključivo nalaze koje pristup sa grubim poređenjem teksta ne bi otkrio. Proveravamo da li te grupe imaju identične audio karakteristike (što bi ukazivalo na pravi duplikat, ne na legitimno drugo izdanje).
+
+```{r}
+data %>%
+  semi_join(skriveni_duplikati %>% distinct(Artist, Track_normalized), by = c("Artist", "Track_normalized")) %>%
+  select(Artist, Track, Danceability, Energy, Valence, Stream) %>%
+  arrange(Artist, Track)
+```
+
+Audio karakteristike se i dalje razlikuju između verzija (original/remaster/live), pa ih zadržavamo kao legitimne, zasebne opservacije - sada na osnovu šireg i preciznijeg pretraživanja, ne samo poređenja sirovog teksta naziva.
+
+## Anomalije
+
+Proveravamo da li postoje vrednosti koje nisu NA, ali su logički nemoguće.
+
+```{r}
+data %>%
+  filter(!is.na(Url_youtube)) %>%
+  filter(Likes > Views | Comments > Views) %>%
+  select(Artist, Track, Views, Likes, Comments)
+```
+
+```{r}
+data %>%
+  filter(Views < 0 | Likes < 0 | Comments < 0 | Stream < 0) %>%
+  select(Artist, Track, Views, Likes, Comments, Stream)
+```
+
+Nema nelogičnih vrednosti kod Views/Likes/Comments/Stream.
+
+```{r}
+data %>%
+  ggplot(aes(x = "", y = Loudness)) +
+  geom_boxplot(fill = "#1DB954", outlier.alpha = 0.3) +
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+  theme_minimal(base_size = 13) +
+  labs(title = "Distribucija Loudness-a", subtitle = "Crvena linija = referentni maksimum (0 dB)", x = "", y = "Loudness (dB)")
+```
+
+```{r}
+data %>%
+  filter(Loudness > 0) %>%
+  select(Artist, Track, Loudness) %>%
+  arrange(desc(Loudness))
+```
+
+Šest pesama blago prelazi 0 dB (odstupanje ispod 1 dB), što je uobičajena pojava kod jako masterovane muzike - zadržavamo ih kao legitimne.
+
+```{r}
+data %>%
+  arrange(Duration_ms) %>%
+  select(Artist, Track, Duration_ms) %>%
+  head(10)
+```
+
+```{r}
+data %>%
+  arrange(desc(Duration_ms)) %>%
+  select(Artist, Track, Duration_ms) %>%
+  head(10)
+```
+
+Ekstremi imaju smisleno objašnjenje (white noise numere za spavanje na donjem kraju, kompilacije na gornjem), pa ih zadržavamo.
+
+```{r}
+print(data %>%
+  select(Danceability, Energy, Valence, Acousticness, Instrumentalness, Liveness, Speechiness) %>%
+  pivot_longer(everything(), names_to = "karakteristika", values_to = "vrednost") %>%
+  ggplot(aes(x = karakteristika, y = vrednost, fill = karakteristika)) +
+  geom_boxplot(alpha = 0.7, outlier.alpha = 0.2) +
+  geom_hline(yintercept = c(0, 1), color = "red", linetype = "dashed") +
+  theme_minimal(base_size = 13) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "none") +
+  labs(title = "Audio karakteristike - provera opsega [0,1]", x = "", y = "Vrednost"))
+```
+
+```{r}
+data %>%
+  filter(Key < -1 | Key > 11) %>%
+  select(Artist, Track, Key)
+```
+
+Sve audio karakteristike su u očekivanom opsegu.
+
+## Nedostajuće vrednosti
+
+```{r}
+na_summary <- data %>%
+  summarise(across(everything(), ~ sum(is.na(.)))) %>%
+  pivot_longer(cols = everything(), names_to = "Kolona", values_to = "Broj_NA") %>%
+  filter(Broj_NA > 0) %>%
+  arrange(desc(Broj_NA))
+
+ggplot(na_summary, aes(x = fct_reorder(Kolona, Broj_NA), y = Broj_NA)) +
+  geom_col(fill = "#1DB954") +
+  geom_text(aes(label = Broj_NA), hjust = -0.2, size = 3.5) +
+  coord_flip() +
+  theme_minimal(base_size = 13) +
+  labs(title = "Broj nedostajućih vrednosti po koloni", x = "", y = "Broj NA")
+```
+
+NA vrednosti postoje u Stream, Comments, Likes, Views (verovatno pesme bez YouTube spota) i po 2 u audio karakteristikama. Prvo proveravamo prazne stringove u tekstualnim kolonama.
+
+```{r}
+data %>%
+  summarise(across(
+    where(~ is.character(.) || is.factor(.)),
+    ~ sum(trimws(as.character(.)) == "", na.rm = TRUE)
+  )) %>%
+  pivot_longer(cols = everything(), names_to = "kolona", values_to = "broj") %>%
+  filter(broj > 0) %>%
+  arrange(desc(broj))
+```
+
+Prazan string vezujemo za pesme bez YouTube spota - zamenjujemo ga sa NA radi lakšeg rukovanja.
+
+```{r}
+data <- data %>%
+  mutate(across(
+    where(~ is.character(.) || is.factor(.)),
+    ~ ifelse(trimws(as.character(.)) == "", NA, as.character(.))
+  ))
+```
+
+### Audio karakteristike
+
+```{r}
+data %>%
+  filter(
+    is.na(Danceability) | is.na(Energy) | is.na(Key) |
+      is.na(Loudness) | is.na(Speechiness) |
+      is.na(Acousticness) | is.na(Instrumentalness) |
+      is.na(Liveness) | is.na(Valence) | is.na(Tempo) | is.na(Duration_ms)
+  ) %>%
+  select(Artist, Track, Album, Danceability, Energy, Loudness, Valence, Stream, Views)
+```
+
+Samo dve pesme nemaju nijednu audio karakteristiku (MCAR - verovatno prekid pri prikupljanju podataka), pa ih brišemo bez značajnog uticaja na skup.
+
+```{r}
+data <- data %>% filter(!is.na(Danceability))
+
+data %>%
+  filter(
+    is.na(Danceability) | is.na(Energy) | is.na(Key) |
+      is.na(Loudness) | is.na(Speechiness) |
+      is.na(Acousticness) | is.na(Instrumentalness) |
+      is.na(Liveness) | is.na(Valence) | is.na(Tempo) | is.na(Duration_ms)
+  ) %>%
+  nrow()
+```
+
+### Views
+
+Nedostajući Views verovatno znači da pesma nema YouTube spot (MAR). Kako je Stream naša ciljna promenljiva (ne Views), ove redove **zadržavamo** - dodajemo indikatorsku kolonu `has_youtube` i popunjavamo YouTube-vezane kolone neutralnim vrednostima, umesto da ih brišemo.
+
+```{r}
+data <- data %>%
+  mutate(has_youtube = ifelse(is.na(Views), FALSE, TRUE))
+
+data <- data %>%
+  mutate(
+    Views = ifelse(!has_youtube, 0, Views),
+    Likes = ifelse(!has_youtube, 0, Likes),
+    Comments = ifelse(!has_youtube, 0, Comments),
+    Url_youtube = ifelse(!has_youtube, "None", Url_youtube),
+    Title = ifelse(!has_youtube, "Unknown", Title),
+    Channel = ifelse(!has_youtube, "Unknown", Channel),
+    Description = ifelse(!has_youtube & is.na(Description), "No Description", Description),
+    Licensed = ifelse(!has_youtube, "Unknown", as.character(Licensed)),
+    official_video = ifelse(!has_youtube, "Unknown", as.character(official_video))
+  )
+
+data %>%
+  summarise(across(everything(), ~ sum(is.na(.)))) %>%
+  pivot_longer(cols = everything(), names_to = "kolona", values_to = "broj_NA") %>%
+  filter(broj_NA > 0) %>%
+  arrange(desc(broj_NA))
+```
+
+### Description
+
+```{r}
+data <- data %>%
+  mutate(Description = ifelse(is.na(Description), "No Description", Description))
+```
+
+### Likes i Comments
+
+NA kod Likes/Comments se javlja na različitim videima (kreator može sakriti lajkove ili isključiti komentare), za razliku od Views gde je uzrok jasan (nema videa).
+
+```{r}
+data %>%
+  filter(has_youtube) %>%
+  summarise(
+    NA_Likes = sum(is.na(Likes)),
+    NA_Comments = sum(is.na(Comments)),
+    NA_Likes_i_Comments = sum(is.na(Likes) & is.na(Comments))
+  )
+```
+
+Umesto da unapred pretpostavimo koja metoda imputacije daje najtačnije rezultate (npr. da je medijana po Views-decilu "razumna" pretpostavka, bez provere), ovde to empirijski testiramo: na delu podataka gde je prava vrednost poznata, tu vrednost privremeno sakrijemo, primenimo svaki kandidat-metod da je predvidimo, i merimo grešku (MAE u log1p-skali, zbog izražene desne asimetrije) u odnosu na stvarnu vrednost. Testiramo četiri kandidata: medijanu po Views-decilu (granice decila računate isključivo iz trening dela - da test deo ne "vidi" sopstvenu podelu), globalnu medijanu, linearnu regresiju na log1p(Views), i medijanu po izvođaču.
+
+```{r}
+uporedi_metode_imputacije <- function(data, target_col, seed = 123) {
+  set.seed(seed)
+
+  poznato <- data %>% filter(has_youtube, !is.na(.data[[target_col]]))
+  n_test <- floor(0.2 * nrow(poznato))
+  test_idx <- sample(seq_len(nrow(poznato)), n_test)
+
+  train <- poznato[-test_idx, ]
+  test <- poznato[test_idx, ]
+  actual <- test[[target_col]]
+
+  granice <- quantile(train$Views, probs = seq(0, 1, length.out = 11), na.rm = TRUE)
+  granice <- unique(granice)
+  granice[1] <- -Inf
+  granice[length(granice)] <- Inf
+  medijane_grupa <- train %>%
+    mutate(grupa = cut(Views, breaks = granice, labels = FALSE, include.lowest = TRUE)) %>%
+    group_by(grupa) %>%
+    summarise(medijana = median(.data[[target_col]]))
+  pred_decile <- test %>%
+    mutate(grupa = cut(Views, breaks = granice, labels = FALSE, include.lowest = TRUE)) %>%
+    left_join(medijane_grupa, by = "grupa") %>%
+    pull(medijana)
+
+  pred_globalna <- rep(median(train[[target_col]]), nrow(test))
+
+  formula_reg <- as.formula(paste0("log1p(", target_col, ") ~ log1p(Views)"))
+  model_reg <- lm(formula_reg, data = train)
+  pred_regresija <- expm1(predict(model_reg, newdata = test))
+
+  medijana_izvodjac <- train %>%
+    group_by(Artist) %>%
+    summarise(med_art = median(.data[[target_col]]))
+  pred_artist <- test %>%
+    left_join(medijana_izvodjac, by = "Artist") %>%
+    mutate(pred = ifelse(is.na(med_art), median(train[[target_col]]), med_art)) %>%
+    pull(pred)
+
+  tibble(
+    metod = c("Medijana po Views-decilu", "Globalna medijana", "Regresija na log1p(Views)", "Medijana po izvođaču"),
+    MAE_log = c(
+      mean(abs(log1p(pred_decile) - log1p(actual))),
+      mean(abs(log1p(pred_globalna) - log1p(actual))),
+      mean(abs(log1p(pred_regresija) - log1p(actual))),
+      mean(abs(log1p(pred_artist) - log1p(actual)))
+    )
+  ) %>% arrange(MAE_log)
+}
+
+uporedi_metode_imputacije(data, "Likes")
+```
+
+```{r}
+uporedi_metode_imputacije(data, "Comments")
+```
+
+Funkcija ispod ne pretpostavlja unapred pobednika - programski uzima metod sa najnižom `MAE_log` iz tabele iznad i njega primenjuje za popunjavanje stvarnih nedostajućih vrednosti (fit na svim poznatim podacima, ne samo na 80% trening delu korišćenom za validaciju).
+
+```{r}
+primeni_najbolju_imputaciju <- function(data, target_col) {
+  poznato <- data %>% filter(has_youtube, !is.na(.data[[target_col]]))
+  nedostaje <- data %>% filter(has_youtube, is.na(.data[[target_col]]))
+
+  if (nrow(nedostaje) == 0) {
+    return(data)
+  }
+
+  rezultati <- uporedi_metode_imputacije(data, target_col)
+  najbolji <- rezultati$metod[1]
+  message("Najtacniji metod za ", target_col, ": ", najbolji, " (MAE_log = ", round(rezultati$MAE_log[1], 4), ")")
+
+  if (najbolji == "Medijana po Views-decilu") {
+    granice <- quantile(poznato$Views, probs = seq(0, 1, length.out = 11), na.rm = TRUE)
+    granice <- unique(granice)
+    granice[1] <- -Inf
+    granice[length(granice)] <- Inf
+    medijane_grupa <- poznato %>%
+      mutate(grupa = cut(Views, breaks = granice, labels = FALSE, include.lowest = TRUE)) %>%
+      group_by(grupa) %>%
+      summarise(medijana = median(.data[[target_col]]))
+    predvidjeno <- nedostaje %>%
+      mutate(grupa = cut(Views, breaks = granice, labels = FALSE, include.lowest = TRUE)) %>%
+      left_join(medijane_grupa, by = "grupa") %>%
+      pull(medijana)
+  } else if (najbolji == "Globalna medijana") {
+    predvidjeno <- rep(median(poznato[[target_col]]), nrow(nedostaje))
+  } else if (najbolji == "Regresija na log1p(Views)") {
+    formula_reg <- as.formula(paste0("log1p(", target_col, ") ~ log1p(Views)"))
+    model_reg <- lm(formula_reg, data = poznato)
+    predvidjeno <- expm1(predict(model_reg, newdata = nedostaje))
+  } else {
+    medijana_izvodjac <- poznato %>%
+      group_by(Artist) %>%
+      summarise(med_art = median(.data[[target_col]]))
+    predvidjeno <- nedostaje %>%
+      left_join(medijana_izvodjac, by = "Artist") %>%
+      mutate(pred = ifelse(is.na(med_art), median(poznato[[target_col]]), med_art)) %>%
+      pull(pred)
+  }
+
+  data[[target_col]][data$has_youtube & is.na(data[[target_col]])] <- predvidjeno
+  data
+}
+
+data <- primeni_najbolju_imputaciju(data, "Likes")
+data <- primeni_najbolju_imputaciju(data, "Comments")
+
+data %>%
+  filter(has_youtube) %>%
+  summarise(NA_Likes = sum(is.na(Likes)), NA_Comments = sum(is.na(Comments)))
+```
+
+### Stream
+
+Za pesme sa YouTube videom koristimo istu, sad već validiranu funkciju (Stream naspram Views prati istu logiku kao Likes/Comments). Za pesme bez YouTube videa Views nije upotrebljiv signal (uvek 0), pa tamo posebno upoređujemo medijanu po izvođaču naspram globalne medijane - opet na osnovu izmerene greške, ne pretpostavke.
+
+```{r}
+data <- primeni_najbolju_imputaciju(data, "Stream")
+
+sum(is.na(data$Stream[data$has_youtube]))
+```
+
+```{r}
+uporedi_metode_bez_yt <- function(data, target_col, seed = 123) {
+  set.seed(seed)
+  poznato <- data %>% filter(!has_youtube, !is.na(.data[[target_col]]))
+  n_test <- floor(0.2 * nrow(poznato))
+  test_idx <- sample(seq_len(nrow(poznato)), n_test)
+  train <- poznato[-test_idx, ]
+  test <- poznato[test_idx, ]
+  actual <- test[[target_col]]
+
+  medijana_izvodjac <- train %>%
+    group_by(Artist) %>%
+    summarise(med_art = median(.data[[target_col]]))
+  pred_artist <- test %>%
+    left_join(medijana_izvodjac, by = "Artist") %>%
+    mutate(pred = ifelse(is.na(med_art), median(train[[target_col]]), med_art)) %>%
+    pull(pred)
+
+  pred_global <- rep(median(train[[target_col]]), nrow(test))
+
+  tibble(
+    metod = c("Medijana po izvođaču", "Globalna medijana (bez YT)"),
+    MAE_log = c(
+      mean(abs(log1p(pred_artist) - log1p(actual))),
+      mean(abs(log1p(pred_global) - log1p(actual)))
+    )
+  ) %>% arrange(MAE_log)
+}
+
+rezultati_bez_yt <- uporedi_metode_bez_yt(data, "Stream")
+rezultati_bez_yt
+```
+
+```{r}
+poznato_bez_yt <- data %>% filter(!has_youtube, !is.na(Stream))
+nedostaje_bez_yt <- data %>% filter(!has_youtube, is.na(Stream))
+
+if (nrow(nedostaje_bez_yt) > 0) {
+  najbolji_bez_yt <- rezultati_bez_yt$metod[1]
+
+  if (najbolji_bez_yt == "Medijana po izvođaču") {
+    medijana_izvodjac <- poznato_bez_yt %>%
+      group_by(Artist) %>%
+      summarise(med_art = median(Stream))
+    predvidjeno <- nedostaje_bez_yt %>%
+      left_join(medijana_izvodjac, by = "Artist") %>%
+      mutate(pred = ifelse(is.na(med_art), median(poznato_bez_yt$Stream), med_art)) %>%
+      pull(pred)
+  } else {
+    predvidjeno <- rep(median(poznato_bez_yt$Stream), nrow(nedostaje_bez_yt))
+  }
+
+  data$Stream[!data$has_youtube & is.na(data$Stream)] <- predvidjeno
+}
+
+sum(is.na(data$Stream))
+```
+
+```{r}
+na_summary <- data %>%
+  summarise(across(everything(), ~ sum(is.na(.)))) %>%
+  pivot_longer(cols = everything(), names_to = "Kolona", values_to = "Broj_NA") %>%
+  filter(Broj_NA > 0) %>%
+  arrange(desc(Broj_NA))
+
+na_summary
+```
+
+Sve nedostajuće vrednosti su rešene.
+
+## Struktura podataka
+
+```{r}
+data <- data %>%
+  mutate(
+    Licensed = factor(Licensed, levels = c("True", "False", "Unknown")),
+    official_video = factor(official_video, levels = c("True", "False", "Unknown")),
+    Album_type = factor(Album_type)
+  )
+
+str(data)
+```
+
+# Feature engineering
+
+## Artist (leave-one-out encoding)
+
+Artist ima previše jedinstvenih vrednosti za direktnu upotrebu u modelu. Prost prosek Stream-a po izvođaču bi doveo do data leakage-a (pesma bi delimično "videla" sopstvenu ciljnu vrednost), a frequency encoding nosi slab signal (skoro svi izvođači imaju ~10 pesama). Zato koristimo **leave-one-out (LOO) mean encoding** - prosečan Stream *ostalih* pesama istog izvođača.
+
+```{r}
+data <- data %>%
+  group_by(Artist) %>%
+  mutate(
+    Artist_n_pesama = n(),
+    Artist_LOO_stream = ifelse(
+      Artist_n_pesama > 1,
+      (sum(Stream, na.rm = TRUE) - Stream) / (Artist_n_pesama - 1),
+      NA
+    )
+  ) %>%
+  ungroup() %>%
+  mutate(Artist_LOO_stream = ifelse(is.na(Artist_LOO_stream), median(Stream, na.rm = TRUE), Artist_LOO_stream))
+
+sum(is.na(data$Artist_LOO_stream))
+```
+
+```{r}
+cor.test(data$Artist_LOO_stream, data$Stream, method = "spearman")
+```
+
+## Engagement rate (Likes, Comments)
+
+Views, Likes i Comments su međusobno jako korelisani (multikolinearnost). Views zadržavamo kao glavnog predstavnika YouTube popularnosti, dok od Likes i Comments pravimo relativne (rate) feature-e.
+
+```{r}
+data <- data %>%
+  mutate(
+    Likes_rate = ifelse(has_youtube & Views > 0, Likes / Views, 0),
+    Comments_rate = ifelse(has_youtube & Views > 0, Comments / Views, 0)
+  )
+```
+
+## Mood kvadrant (Valence x Energy)
+
+```{r}
+data <- data %>%
+  mutate(
+    Mood_kvadrant = case_when(
+      Valence >= 0.5 & Energy >= 0.5 ~ "Happy/Energetic",
+      Valence < 0.5 & Energy >= 0.5 ~ "Anger/Unpleasant",
+      Valence >= 0.5 & Energy < 0.5 ~ "Calm/Relaxing",
+      Valence < 0.5 & Energy < 0.5 ~ "Sad/Melancholic"
+    ),
+    Mood_kvadrant = factor(Mood_kvadrant)
+  )
+
+kruskal_effsize(data, Stream ~ Mood_kvadrant)
+```
+
+## Danceability i Energy (Party index)
+
+```{r}
+data <- data %>%
+  mutate(Party_index = Danceability * Energy)
+
+cor.test(data$Party_index, data$Stream, method = "spearman")
+```
+
+## Binarna klasifikacija (Spotify pragovi)
+
+```{r}
+data <- data %>%
+  mutate(
+    Is_spoken = ifelse(Speechiness > 0.66, TRUE, FALSE),
+    Is_instrumental = ifelse(Instrumentalness > 0.5, TRUE, FALSE),
+    Is_live = ifelse(Liveness > 0.8, TRUE, FALSE)
+  )
+```
+
+## Key (muzički tonalitet)
+
+```{r}
+data <- data %>%
+  mutate(Key_faktor = factor(Key))
+```
+
+## Kolaboracija (feat. u nazivu pesme)
+
+```{r}
+data <- data %>%
+  mutate(Is_collab = grepl("feat\\.|ft\\.|featuring", Track, ignore.case = TRUE))
+```
+
+## Licensed x official_video (kombinovana kategorija)
+
+```{r}
+data <- data %>%
+  mutate(
+    Licensed_video_combo = case_when(
+      Licensed == "True" & official_video == "True" ~ "Licensed_official",
+      Licensed == "True" & official_video == "False" ~ "Licensed_unofficial",
+      Licensed == "False" & official_video == "True" ~ "Unlicensed_official",
+      Licensed == "False" & official_video == "False" ~ "Unlicensed_unofficial",
+      TRUE ~ NA_character_
+    ),
+    Licensed_video_combo = factor(Licensed_video_combo)
+  )
+```
+
+## Genre (žanr izvođača)
+
+Skup podataka ne sadrži žanr pesme. Spotify Web API vezuje žanr za **izvođača**, ne za pojedinačnu pesmu (endpoint `GET /v1/artists` vraća `genres` niz po izvođaču) - to nije isto što i endpoint za audio karakteristike (`/audio-features`), koji je Spotify ugasio za nove aplikacije u novembru 2024. i koji nam ionako ne treba, jer audio karakteristike već imamo u CSV-u. Endpoint za osnovne podatke o izvođaču (uključujući `genres`) i dalje radi za sve aplikacije.
+
+**Napomena o pristupu:** kod ispod pokušava da dohvati žanr preko Spotify API-ja SAMO ako su `SPOTIFY_CLIENT_ID` i `SPOTIFY_CLIENT_SECRET` postavljeni u `.Renviron` (vidi `Sys.getenv()` ispod). Ako kredencijali nisu podešeni, ili API poziv iz bilo kog razloga ne uspe (mrežna greška, izvođač nije pronađen, prazan `genres` niz), kod automatski prelazi na **fallback zasnovan na audio karakteristikama** (pravila po pragovima), tako da fajl radi bez greške i bez kredencijala. Rezultati API poziva se čuvaju u lokalnom `artist_genres_cache.rds`, tako da se pretraga ne ponavlja pri svakom narednom knit-ovanju.
+
+Zbog broja jedinstvenih izvođača (>2000), pretraga preko `/v1/search` je najsporiji korak (jedan poziv po izvođaču) - prvo pokretanje sa kredencijalima može potrajati nekoliko minuta; naredna pokretanja koriste keš.
+
+```{r}
+SKIP_SPOTIFY_API <- FALSE # postavi na TRUE da se API nikad ne pokušava (samo fallback)
+CACHE_PATH <- "artist_genres_cache.rds"
+
+get_spotify_token <- function() {
+  client_id <- Sys.getenv("SPOTIFY_CLIENT_ID")
+  client_secret <- Sys.getenv("SPOTIFY_CLIENT_SECRET")
+
+  if (client_id == "" || client_secret == "") {
+    return(NULL)
+  }
+
+  tryCatch(
+    {
+      resp <- request("https://accounts.spotify.com/api/token") %>%
+        req_auth_basic(client_id, client_secret) %>%
+        req_body_form(grant_type = "client_credentials") %>%
+        req_retry(max_tries = 2, max_seconds = 5) %>%
+        req_perform()
+
+      resp_body_json(resp)$access_token
+    },
+    error = function(e) {
+      message("Spotify autentifikacija nije uspela, prelazim na audio-heuristiku: ", conditionMessage(e))
+      NULL
+    }
+  )
+}
+
+search_artist_id <- function(artist_name, token) {
+  tryCatch(
+    {
+      resp <- request("https://api.spotify.com/v1/search") %>%
+        req_url_query(q = artist_name, type = "artist", limit = 1) %>%
+        req_auth_bearer_token(token) %>%
+        req_retry(max_tries = 3, max_seconds = 5) %>%
+        req_perform()
+
+      items <- resp_body_json(resp)$artists$items
+      if (length(items) == 0) {
+        return(NA_character_)
+      }
+      items[[1]]$id
+    },
+    error = function(e) NA_character_
+  )
+}
+
+get_artists_genres_batch <- function(artist_ids, token) {
+  artist_ids <- artist_ids[!is.na(artist_ids)]
+  if (length(artist_ids) == 0) {
+    return(tibble(artist_id = character(), genres = list()))
+  }
+
+  chunks <- split(artist_ids, ceiling(seq_along(artist_ids) / 50))
+
+  map_dfr(chunks, function(ids) {
+    tryCatch(
+      {
+        resp <- request("https://api.spotify.com/v1/artists") %>%
+          req_url_query(ids = paste(ids, collapse = ",")) %>%
+          req_auth_bearer_token(token) %>%
+          req_retry(max_tries = 3, max_seconds = 5) %>%
+          req_perform()
+
+        artists <- resp_body_json(resp)$artists
+        tibble(
+          artist_id = ids,
+          genres = map(artists, function(a) if (is.null(a$genres)) list() else a$genres)
+        )
+      },
+      error = function(e) {
+        tibble(artist_id = ids, genres = vector("list", length(ids)))
+      }
+    )
+  })
+}
+
+map_genre_broad <- function(genres_vec) {
+  if (length(genres_vec) == 0 || all(is.na(genres_vec))) {
+    return(NA_character_)
+  }
+  g <- paste(tolower(unlist(genres_vec)), collapse = " ")
+
+  case_when(
+    str_detect(g, "hip hop|rap|trap") ~ "Hip-Hop/Rap",
+    str_detect(g, "r&b|soul|funk") ~ "R&B/Soul",
+    str_detect(g, "edm|electro|house|techno|dance|dubstep|trance") ~ "Electronic/Dance",
+    str_detect(g, "rock|metal|punk|grunge") ~ "Rock",
+    str_detect(g, "country|folk|bluegrass|americana") ~ "Country/Folk",
+    str_detect(g, "latin|reggaeton|salsa|bachata") ~ "Latin",
+    str_detect(g, "classical|instrumental|ambient|soundtrack") ~ "Instrumental",
+    str_detect(g, "pop") ~ "Pop",
+    TRUE ~ "Other"
+  )
+}
+```
+
+Fallback pravila po pragovima nad audio karakteristikama - koriste se samo kada API ne vrati žanr za datog izvođača:
+
+```{r}
+genre_from_audio <- function(speechiness, instrumentalness, acousticness, energy, danceability, valence, loudness) {
+  case_when(
+    speechiness > 0.66 ~ "Hip-Hop/Rap",
+    instrumentalness > 0.5 ~ "Instrumental",
+    acousticness > 0.6 & energy < 0.4 ~ "Country/Folk",
+    danceability > 0.7 & energy > 0.6 & valence > 0.5 ~ "Electronic/Dance",
+    energy > 0.7 & loudness > -6 & speechiness < 0.33 ~ "Rock",
+    TRUE ~ "Pop/Other"
+  )
+}
+```
+
+Dohvatanje žanra po jedinstvenom izvođaču (sa keširanjem):
+
+```{r}
+unique_artists <- unique(data$Artist)
+
+artist_genre_lookup <- tibble(Artist = character(), Genre_api = character())
+
+if (file.exists(CACHE_PATH)) {
+  artist_genre_lookup <- readRDS(CACHE_PATH)
+}
+
+vec_novi_izvodjaci <- setdiff(unique_artists, artist_genre_lookup$Artist)
+
+if (!SKIP_SPOTIFY_API && length(vec_novi_izvodjaci) > 0) {
+  token <- get_spotify_token()
+
+  if (!is.null(token)) {
+    BATCH_SIZE <- 100
+    batches <- split(vec_novi_izvodjaci, ceiling(seq_along(vec_novi_izvodjaci) / BATCH_SIZE))
+
+    for (batch in batches) {
+      # Faza 1: search po imenu (jedan poziv po izvodjacu - /v1/search ne podrzava batch)
+      ids <- map_chr(batch, function(nm) {
+        id <- search_artist_id(nm, token)
+        Sys.sleep(0.15)
+        id
+      })
+
+      # Faza 2: zanrovi za sve razresene ID-jeve iz ovog batch-a, grupno (do 50 po pozivu)
+      genres_res <- get_artists_genres_batch(ids, token)
+      genre_by_id <- setNames(map_chr(genres_res$genres, map_genre_broad), genres_res$artist_id)
+
+      novi_rezultati <- tibble(
+        Artist = batch,
+        artist_id = ids,
+        Genre_api = ifelse(is.na(ids), NA_character_, genre_by_id[ids])
+      ) %>% select(-artist_id)
+
+      artist_genre_lookup <- bind_rows(artist_genre_lookup, novi_rezultati)
+      saveRDS(artist_genre_lookup, CACHE_PATH)
+    }
+  }
+}
+
+artist_genre_lookup %>% count(is.na(Genre_api))
+```
+
+Spajanje sa glavnim skupom i primena fallback-a tamo gde API nije vratio žanr:
+
+```{r}
+data <- data %>%
+  left_join(artist_genre_lookup, by = "Artist") %>%
+  mutate(
+    Genre_source = ifelse(!is.na(Genre_api), "spotify_api", "audio_heuristic"),
+    Genre = ifelse(
+      !is.na(Genre_api),
+      Genre_api,
+      genre_from_audio(Speechiness, Instrumentalness, Acousticness, Energy, Danceability, Valence, Loudness)
+    ),
+    Genre = factor(Genre)
+  ) %>%
+  select(-Genre_api)
+
+data %>% count(Genre_source)
+```
+
+```{r}
+data %>%
+  count(Genre) %>%
+  arrange(desc(n))
+```
+
+```{r}
+ggplot(data, aes(x = fct_infreq(Genre), y = log1p(Stream), fill = Genre)) +
+  geom_violin(trim = FALSE, alpha = 0.8) +
+  geom_boxplot(width = 0.1, outlier.shape = NA, alpha = 0.3) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 30, hjust = 1), legend.position = "none") +
+  labs(title = "Distribucija Stream-a po Genre (log skala)", x = "", y = "log(Stream + 1)")
+```
+
+```{r}
+kruskal.test(Stream ~ Genre, data = data)
+kruskal_effsize(data, Stream ~ Genre)
+```
+
+**Napomena:** za izvođače kod kojih žanr dolazi iz audio-heuristike (fallback), postoji cirkularnost - ista audio svojstva (Speechiness, Instrumentalness...) su i ulaz za određivanje žanra i zaseban prediktor u modelu, pa `Genre` u tom delu skupa dodaje malo nove informacije preko postojećih audio kolona. Kod izvođača sa žanrom iz API-ja (`Genre_source == "spotify_api"`), `Genre` nosi nezavisnu informaciju (stvarni žanr sa Spotify-a), pa je taj deo dela vrednija za model.
+
+# Multivarijantna analiza - Stream
+
+Bivarijantna analiza i feature engineering pokazuju kako se svaka promenljiva pojedinačno odnosi prema Stream-u. Multivarijantna analiza ispituje kako prediktori zajedno objašnjavaju Stream, uz sinergiju, i - specifično ovde - koliko YouTube strana podataka dodaje preko onoga što Spotify strana (audio karakteristike, izvođač, žanr) već objašnjava.
+
+## Izbor prediktora i dva modela
+
+- **Model A - "Spotify-only"** (bez YouTube atributa): Artist_LOO_stream, Album_type, Genre, audio karakteristike (Danceability, Energy, Loudness, Speechiness, Acousticness, Instrumentalness, Liveness, Valence, Tempo, Duration_ms). Ovo su promenljive koje (osim Genre iz API-ja) postoje nezavisno od toga da li pesma ima YouTube spot.
+- **Model B - "sa YouTube signalom"**: Model A + log1p(Views), Licensed, official_video - "video-side" signal popularnosti.
+
+**Napomena o data leakage-u.** Views, Licensed i official_video se mere u istom (ili kasnijem) vremenskom okviru kao i sam Stream, ne pre objave pesme - Model B je svesno eksplanatoran, ne strogo prediktivan unapred. Likes i Comments ostaju izostavljeni iz oba modela zbog najjačeg rizika od data leakage-a i redundantnosti sa Views-om.
+
+Oba modela grade se samo nad pesmama koje imaju YouTube spot (`has_youtube`), jer Views/Licensed/official_video imaju smisla samo tada - ovo obezbeđuje da su Model A i Model B upoređeni nad identičnim skupom redova (razlika u R² dolazi isključivo od dodatih promenljivih, ne od različitog uzorka).
+
+```{r}
+data_model <- data %>%
+  filter(has_youtube) %>%
+  mutate(
+    Licensed = droplevels(Licensed),
+    official_video = droplevels(official_video)
+  )
+
+nrow(data_model)
+```
+
+## Provera multikolinearnosti (VIF)
+
+```{r}
+model_A <- lm(
+  log1p(Stream) ~ Artist_LOO_stream + Album_type + Genre +
+    Danceability + Energy + Loudness + Speechiness + Acousticness +
+    Instrumentalness + Liveness + Valence + Tempo + Duration_ms,
+  data = data_model
+)
+
+vif(model_A)
+```
+
+```{r}
+model_B <- lm(
+  log1p(Stream) ~ Artist_LOO_stream + Album_type + Genre +
+    Danceability + Energy + Loudness + Speechiness + Acousticness +
+    Instrumentalness + Liveness + Valence + Tempo + Duration_ms +
+    log1p(Views) + Licensed + official_video,
+  data = data_model
+)
+
+vif(model_B)
+```
+
+## Osnovni modeli
+
+```{r}
+summary(model_A)
+```
+
+```{r}
+summary(model_B)
+```
+
+```{r}
+tibble(
+  Model = c("A - Spotify-only", "B - sa YouTube signalom"),
+  R2 = c(summary(model_A)$r.squared, summary(model_B)$r.squared),
+  Adj_R2 = c(summary(model_A)$adj.r.squared, summary(model_B)$adj.r.squared)
+)
+```
+
+```{r}
+anova(model_A, model_B)
+```
+
+F-test poredi ugnježdene modele (Model A je podskup Model B), pa statistički značajan rezultat i porast R² pokazuju koliko YouTube strana podataka (pre svega Views) dodaje preko onoga što audio karakteristike, izvođač i žanr već objašnjavaju o broju stream-ova. Razlika u Adjusted R² je direktan, brojčan odgovor na pitanje koliko jedna platforma (YouTube) utiče na objašnjenje popularnosti na drugoj (Spotify).
+
+### Dijagnostika modela
+
+```{r}
+par(mfrow = c(2, 2))
+plot(model_A)
+```
+
+```{r}
+par(mfrow = c(2, 2))
+plot(model_B)
+```
+
+## Provera sinergije (interakcioni efekti)
+
+Testiramo iste interakcije koje imaju smisla iz domenskog znanja kao u ranijoj multivarijantnoj analizi, ovde nad Modelom B (najkompletniji skup prediktora):
+
+- **Danceability:Energy** - da li "plesne i energične" pesme imaju neproporcionalno veći broj stream-ova (ista ideja kao Party_index).
+- **Loudness:Energy** - da li kombinacija glasnoće i energije ("produkcijski intenzitet") nosi dodatni signal.
+
+```{r}
+model_B_interakcije <- lm(
+  log1p(Stream) ~ Artist_LOO_stream + Album_type + Genre +
+    Danceability + Energy + Loudness + Speechiness + Acousticness +
+    Instrumentalness + Liveness + Valence + Tempo + Duration_ms +
+    log1p(Views) + Licensed + official_video +
+    Danceability:Energy + Loudness:Energy,
+  data = data_model
+)
+
+summary(model_B_interakcije)
+```
+
+```{r}
+anova(model_B, model_B_interakcije)
+```
+
+## Zaključak multivarijantne analize
+
+- Model A (bez YouTube atributa) pokazuje koliko se Stream može objasniti samo iz karakteristika same pesme i izvođača (Artist_LOO_stream, audio karakteristike, žanr, tip albuma).
+- Model B dodaje YouTube stranu (Views, Licensed, official_video) - poređenje R²/Adjusted R² i F-test (`anova(model_A, model_B)`) kvantifikuju koliko YouTube popularnost dodaje objašnjenju Stream-a preko Spotify-strane signala.
+- VIF vrednosti u oba modela treba proveriti da ne prelaze uobičajeni prag (5) pre tumačenja koeficijenata.
+- Interakcije Danceability:Energy i Loudness:Energy testiraju da li postoji sinergija između audio karakteristika, nezavisno od toga da li je YouTube signal uključen.
+- Ovo su i dalje inferencijalni (eksplanatorni) modeli - odabir finalnog prediktivnog modela, train/test podela i ocena tačnosti planirani su za narednu fazu rada.
