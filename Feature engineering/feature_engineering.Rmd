@@ -108,9 +108,9 @@ cor.test(data$Comments_rate, data$Stream, method = "spearman")
 
 ## Mood kvadrant (Valence x Energy)
 
-Iz bivarijantne analize znamo da nijedna audio karakteristika pojedinačno ne prelazi korelaciju od |0.14| sa Stream-om, što ukazuje da to kako pesma zvuči ima slab pojedinačan uticaj na njenu popularnost. Umesto da posmatramo karakteristike izolovano, pokušavamo da ih kombinujemo na način koji ima muzikološki smisao, u nadi da kombinacija nosi jači signal od pojedinačnih kolona.
+Iz bivarijantne analize znamo da nijedna audio karakteristika pojedinačno ne prelazi korelaciju od |0.14| sa Stream-om, što ukazuje da to kako pesma zvuči ima slab pojedinačan uticaj na njenu popularnost. Umesto da posmatramo karakteristike izolovano, pokušaćemo da ih kombinujemo na način koji ima muzički smisao, u nadi da kombinacija nosi jači signal od pojedinačnih kolona.
 
-Valence (pozitivnost/raspoloženje pesme) i Energy (intenzitet, aktivnost) su dve karakteristike koje se u muzičkoj psihologiji često kombinuju u tzv. kvadrant raspoloženja (Russell-ov cirkumpleks model afekta): visoka Valence + visoka Energy odgovara "srećnom/energičnom" raspoloženju, niska Valence + visoka Energy "ljutom/napetom", visoka Valence + niska Energy "smirenom/opuštenom", a niska Valence + niska Energy "tužnom/melanholičnom" raspoloženju. Ovakva kategorijska promenljiva bi mogla da uhvati nelinearnu interakciju između dve karakteristike koju pojedinačne korelacije ne mogu da vide.
+Valence i Energy su dve karakteristike koje se u muzičkoj psihologiji često kombinuju u kvadrant raspoloženja. Ovakva kategorijska promenljiva bi mogla da uhvati nelinearnu interakciju između dve karakteristike koju pojedinačne korelacije ne mogu da vide.
 
 ```{r}
 data <- data %>%
@@ -146,7 +146,7 @@ Kruskal-Wallis test pokazuje statistički značajnu razliku u Stream-u između m
 
 ## Danceability i Energy
 
-Pošto je kombinacija Valence i Energy (Mood_kvadrant) pokazala zanemarljiv efekat, probaćemo drugu kombinaciju audio karakteristika koja ima neki smisao iz domenskog znanja, Danceability i Energy zajedno bi trebalo da opisuju koliko je pesma zabavna i energična, što je karakteristika koja pojedinačno nije uhvaćena nijednom od postojećih kolona. Umesto kategorijske podele kao kod mood kvadranta, pravimo feature množenjem dve vrednosti, kako bismo zadržali kontinualnu prirodu podataka.
+Pošto je kombinacija Valence i Energy (Mood_kvadrant) pokazala zanemarljiv efekat, probaćemo drugu kombinaciju audio karakteristika koja ima neki smisao iz domenskog znanja, Danceability i Energy zajedno bi trebalo da opisuju koliko je pesma zabavna i energična, što je karakteristika koja pojedinačno nije uhvaćena nijednom od postojećih kolona. Umesto kategorijske podele kao, pravimo feature množenjem dve vrednosti, kako bismo zadržali kontinualnu prirodu podataka.
 
 ```{r}
 data <- data %>%
