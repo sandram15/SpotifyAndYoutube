@@ -3,8 +3,9 @@ title: "Spotify and Youtube"
 author: "Katarina Dimitrijević, Sandra Miladinović"
 date: "2026-08-11"
 output:
-  pdf_document: default
+  word_document: default
   html_document: default
+  pdf_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -13,7 +14,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 # Uvod
 
-Predviđanje popularnosti muzike ima veliki značaj u savremenoj muzičkoj industriji, diskografske kuće i menadžeri izvođača koriste ovakve analize kako bi procenili potencijal pesme pre ili nakon objavljivanja, radi donošenja različitih marketinških odluka. Same streaming platforme (Spotify, YouTube) oslanjaju se na slične principe prilikom kreiranja algoritamskih preporuka i plejlista, gde razumevanje faktora koji utiču na popularnost direktno utiče na to koja će muzika biti preporučena publici. Generalno, ovakve analize doprinose i boljem razumevanju same muzičke industrije, koliko na uspeh pesme utiče njen zvuk (audio karakteristike), koliko reputacija izvođača, a koliko spoljašnji faktori poput vidljivosti na drugim platformama.
+Predviđanje popularnosti muzike ima veliki značaj u savremenoj muzičkoj industriji. Diskografske kuće i menadžeri izvođača koriste ovakve analize kako bi procenili potencijal pesme pre ili nakon objavljivanja, radi donošenja različitih marketinških odluka. Same streaming platforme (Spotify, YouTube) oslanjaju se na slične principe prilikom kreiranja algoritamskih preporuka i plejlista, gde razumevanje faktora koji utiču na popularnost direktno utiče na to koja će muzika biti preporučena publici. Generalno, ovakve analize doprinose i boljem razumevanju same muzičke industrije, koliko na uspeh pesme utiče njen zvuk (audio karakteristike), koliko reputacija izvođača, a koliko spoljašnji faktori poput vidljivosti na drugim platformama.
 
 Za potrebe ovog istraživanja korišćen je R programski jezik jer nudi veliki izbor biblioteka za statističku analizu, obradu podataka i vizualizaciju.
 
@@ -48,34 +49,62 @@ str(data)
 ```
 
 Spisak kolona koje skup sadrži i kratak opis:
+
 1. X – Jedinstveni identifikator.
+
 2. Artist – Izvođač pesme.
+
 3. Url_spotify – Link ka stranici izvođača na Spotify-u.
+
 4. Track – Naziv pesme.
+
 5. Album – Naziv albuma na kome se pesma nalazi.
+
 6. Album_type – Tip izdanja: album, single ili compilation.
+
 7. Uri – Jedinstveni Spotify identifikator pesme.
+
 8. Danceability – Mera (0–1) koliko je pesma pogodna za ples, na osnovu tempa, ritmičke stabilnosti i jačine bita.
+
 9. Energy – Mera (0–1) intenziteta i aktivnosti pesme; brze, glasne pesme imaju više vrednosti.
-10. Key – Tonalitet pesme, kodiran brojevima 0–11 (0 = C, 1 = C♯/D♭, ..., 11 = B); -1 ako tonalitet nije detektovan.
+
+10. Key – Tonalitet pesme, kodiran brojevima 0–11, -1 ako tonalitet nije detektovan.
+
 11. Loudness – Prosečna jačina zvuka pesme u decibelima (dB), tipično u opsegu od -60 do 0.
+
 12. Speechiness – Mera (0–1) prisustva govora u snimku; visoke vrednosti ukazuju na govorni sadržaj, a ne pevanu muziku.
+
 13. Acousticness – Mera pouzdanosti (0–1) da je pesma akustična, bez elektronske produkcije.
+
 14. Instrumentalness – Mera (0–1) verovatnoće da pesma nema vokal.
+
 15. Liveness – Mera (0–1) prisustva publike u snimku; visoke vrednosti ukazuju da je pesma snimljena uživo.
+
 16. Valence – Mera (0–1) muzičke "pozitivnosti"; više vrednosti zvuče vedrije, niže turobnije.
+
 17. Tempo – Procenjeni tempo pesme u otkucajima u minuti (BPM).
+
 18. Duration_ms – Trajanje pesme u milisekundama.
+
 19. Url_youtube – Link ka YouTube video spotu pesme.
+
 20. Title – Naziv YouTube videa.
+
 21. Channel – Naziv YouTube kanala na kome je video objavljen.
+
 22. Views – Broj pregleda YouTube videa.
+
 23. Likes – Broj lajkova na YouTube videu.
+
 24. Comments – Broj komentara na YouTube videu.
+
 25. Description – Opis YouTube videa koji je uneo autor.
-26. Licensed – Da li je video registrovan kao licencirani sadržaj (postavljen preko zvaničnog YouTube content partnera).
-27. official_video – Da li je video zvaničan spot pesme, za razliku od lyric videa, izvedbe uživo ili fan-uploada.
-28. Stream – Broj stream-ova (slušanja) pesme na Spotify-u - ciljna promenljiva.
+
+26. Licensed – Da li je video registrovan kao licencirani sadržaj.
+
+27. official_video – Da li je video zvaničan spot pesme, za razliku od lyrics videa, izvedbe uživo ili fan-uploada.
+
+28. Stream – Broj stream-ova pesme na Spotify-u.
 
 # Eksplorativna analiza podataka (EDA)
 
@@ -359,9 +388,12 @@ ggplot(top_channels, aes(x = fct_reorder(Channel, n), y = n)) +
 Na barplot-u je naša inicijalna tvrdnja i potvrđena, kako su ovi kanali neke veće kompanije, a ne pojedinačni izvođači.
 
 ```{r}
-channel_sizes <- data_channel %>% count(Channel)
+channel_sizes <- data %>%
+  filter(!is.na(Channel), Channel != "") %>%
+  count(Channel)
+
 summary(channel_sizes$n)
-mean(channel_sizes$n == 1)   
+mean(channel_sizes$n == 1)
 ```
 Na osnovu činjenice da više od 50% kanala imaju samo jednu pesmu, možemo otprilike da zaključimo da ova kolona neće biti pogodna za transformaciju i korišćenje u modelima, ali to možemo proveriti u odnosu na Views.
 
@@ -1919,7 +1951,7 @@ plot(model_B)
 Dijagnostika pokazuje da oba modela imaju isti problem, reziduali nisu ni savršeno homogeni ni normalni, pa postoji blaga heteroskedastičnost  i primetan rep pesama koje model sistematski precenjuje, gde stvarni Stream ispadne mnogo niži nego što model predviđa.  Realni zaključak je da su modeli dobro uhvatili glavni trend u podacima, ali imaju grešku sa određeneom podgrupom pesama (verovatno baš onih na velikom popularnošću), što se i moglo očekivati, obzirom na to koliko je Stream desno asimetričan čak i posle log transformacije.
 
 
-## Sinergije (interakcioni efekti)
+## Sinergija (interakcioni efekti)
 
 Testiramo iste interakcije koje imaju smisla iz domenskog znanja kao u ranijem feature engineering-u, ovde nad Modelom B:
 

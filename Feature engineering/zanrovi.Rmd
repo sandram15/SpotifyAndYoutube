@@ -1,0 +1,61 @@
+---
+title: "zanrovi"
+author: "Sandra Miladinovic"
+date: "2026-08-12"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(moments)
+library(scales)
+library(reshape2)
+library(rstatix)
+library(psych)
+library(car)
+
+artists_lookup <- read.csv("artists.csv", stringsAsFactors = FALSE)
+str(artists_lookup)
+```
+
+```{r}
+artists_lookup_clean <- artists_lookup %>%
+  select(name, main_genre, followers) %>%
+  mutate(name_key = str_trim(str_to_lower(name))) %>%
+  arrange(desc(followers)) %>%
+  distinct(name_key, .keep_all = TRUE)
+
+data <- data %>%
+  mutate(Artist_key = str_trim(str_to_lower(Artist))) %>%
+  left_join(
+    artists_lookup_clean %>% select(Artist_key = name_key, Genre_kaggle = main_genre),
+    by = "Artist_key"
+  ) %>%
+  select(-Artist_key)
+
+data %>% summarise(matched = sum(!is.na(Genre_kaggle)), total = n(), pct = round(matched / total * 100, 1))
+
+data <- data %>%
+  mutate(
+    Genre_source = ifelse(!is.na(Genre_kaggle), "kaggle_lookup", "audio_heuristic"),
+    Genre = ifelse(
+      !is.na(Genre_kaggle),
+      Genre_kaggle,
+      genre_from_audio(Speechiness, Instrumentalness, Acousticness, Energy, Danceability, Valence, Loudness)
+    ),
+    Genre = factor(Genre)
+  ) %>%
+  select(-Genre_kaggle)
+
+data %>% count(Genre_source)
+```
+
+```{r}
+kruskal.test(Stream ~ Genre, data = data)
+kruskal_effsize(data, Stream ~ Genre)
+```
+
