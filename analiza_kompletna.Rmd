@@ -1324,20 +1324,28 @@ Nakon ovih promena, strukturalna šema podataka izgleda u redu.
 
 # Feature engineering
 
-## Artist (leave-one-out encoding)
+## Artist 
 
-Artist ima previše jedinstvenih vrednosti za direktnu upotrebu u modelu. Prost prosek Stream-a po izvođaču bi doveo do data leakage-a (pesma bi delimično "videla" sopstvenu ciljnu vrednost), a frequency encoding nosi slab signal (skoro svi izvođači imaju ~10 pesama). Zato koristimo **leave-one-out (LOO) mean encoding** - prosečan Stream *ostalih* pesama istog izvođača.
+Iz bivarijantne analize znamo da Artist ima uticaj na Stream, ali kolona ima previše vrednosti da bi mogla direktno da se koristi u modelu bez enkodiranja.
+
+Prva pomisao je da iskoristimo prosečan Stream po izvođaču kao numerički podatak, međutim ovaj pristup nosi rizik od data leakage-a, jer ako u prosek uključimo i Stream same pesme, ta pesma ima jasan podatak o sopstvenoj ciljnoj vrednosti kroz tu kolonu.
+
+Takođe postoji mogućnost da frequency encoding bude dovoljan, ali kako iz univarijantne analize znamo da skoro svaki izvođač ima tačno 10 pesama u skupu, ova kolona bi imala jako malo varijanse i nosila bi slab signal.
+
+Zbog toga se opredeljujemo za **leave-one-out (LOO) median encoding**, pri čemu za svaku pesmu računamo medijanu stream-ova *ostalih* pesama istog izvođača, bez trenutne pesme. Uzimamo medijanu umesto srednje vrednosti jer je Stream izraženo desna asimetrična, pa bi srednja vrednost pokupila dosta uticaja od najpopularnijih pesama umetnika.
 
 ```{r}
+loo_medijana <- function(x) {
+  n <- length(x)
+  if (n <= 1) return(rep(NA_real_, n))
+  sapply(seq_along(x), function(i) median(x[-i], na.rm = TRUE))
+}
+
 data <- data %>%
   group_by(Artist) %>%
   mutate(
     Artist_n_pesama = n(),
-    Artist_LOO_stream = ifelse(
-      Artist_n_pesama > 1,
-      (sum(Stream, na.rm = TRUE) - Stream) / (Artist_n_pesama - 1),
-      NA
-    )
+    Artist_LOO_stream = loo_medijana(Stream)
   ) %>%
   ungroup() %>%
   mutate(Artist_LOO_stream = ifelse(is.na(Artist_LOO_stream), median(Stream, na.rm = TRUE), Artist_LOO_stream))
@@ -1349,7 +1357,7 @@ sum(is.na(data$Artist_LOO_stream))
 cor.test(data$Artist_LOO_stream, data$Stream, method = "spearman")
 ```
 
-Spearmanova korelacija potvrđuje umerenu do jaku pozitivnu vezu između Artist_LOO_stream i Stream, što znači da se Artist_LOO_stream pokazao kao jedan od najjačih pojedinačnih prediktora u skupu.
+Spearmanova korelacija potvrđuje umerenu do jaku pozitivnu vezu između dodate kolone i Stream-a, što znači da je ova kolona definitivno kandidat za prediktor.
 
 ```{r}
 data %>%
@@ -1357,14 +1365,14 @@ data %>%
   geom_point(alpha = 0.15, color = "steelblue") +
   geom_smooth(method = "loess", color = "red", se = FALSE) +
   theme_minimal() +
-  labs(title = "Stream naspram Artist LOO proseka (log skala)", x = "log(Artist_LOO_stream + 1)", y = "log(Stream + 1)")
+  labs(title = "Stream naspram Artist", x = "log(Artist_LOO_stream + 1)", y = "log(Stream + 1)")
 ```
 
 ## Engagement rate (Likes, Comments)
 
-Views, Likes i Comments su međusobno jako korelisani (multikolinearnost). Views zadržavamo kao glavnog predstavnika YouTube popularnosti (najjača veza sa Stream-om, najkompletnija varijabla), dok od Likes i Comments pravimo relativne (rate) feature-e umesto sirovih brojeva, što nam daje informaciju o tome koliko je publika angažovana prilikom gledanja videa, a ne samo koliko je video pogledan.
+Views, Likes i Comments su međusobno jako korelisani (multikolinearnost). Views zadržavamo kao glavnog predstavnika YouTube popularnosti (najjača veza sa Stream-om), dok od Likes i Comments pravimo relativne (rate) feature-e umesto sirovih brojeva, što nam daje informaciju o tome koliko je publika angažovana prilikom gledanja videa, a ne samo koliko je video pogledan.
 
-Napominjemo da Views, Likes i Comments i dalje nose rizik od data leakage-a, kako se mere u istom vremenskom okviru kao i sam Stream, a ne kao informacija dostupna unapred u trenutku objavljivanja pesme - ovo treba imati u vidu prilikom kasnijeg odabira finalnog skupa prediktora za model.
+Views, Likes i Comments i dalje nose rizik od data leakage-a, kako se mere u istom vremenskom okviru kao i sam Stream, a ne kao informacija dostupna unapred u trenutku objavljivanja pesme.
 
 ```{r}
 data <- data %>%
@@ -1377,7 +1385,7 @@ summary(data$Likes_rate)
 summary(data$Comments_rate)
 ```
 
-Za pesme bez YouTube videa (has_youtube = FALSE), Likes_rate i Comments_rate postavljamo na 0, u skladu sa ranije usvojenom logikom za same izvorne kolone.
+Za pesme bez YouTube videa, Likes_rate i Comments_rate postavljamo na 0, u skladu sa ranije usvojenom logikom za same izvorne kolone.
 
 ```{r}
 cor.test(data$Likes_rate, data$Stream, method = "spearman")
@@ -1418,7 +1426,7 @@ cor.test(data$Party_index, data$Stream, method = "spearman")
 
 Party_index ima nešto jaču vezu sa Stream-om nego njegove pojedinačne komponente, iako sve tri vrednosti ostaju u okviru slabog opsega korelacije već utvrđenog u bivarijantnoj analizi za audio karakteristike.
 
-## Binarna klasifikacija (Spotify pragovi)
+## Binarna klasifikacija audio karakteristika
 
 Spotify-jeva zvanična dokumentacija predlaže konkretne pragove za pojedine audio karakteristike koji ukazuju na specifičnu vrstu sadržaja - npr. Speechiness iznad 0.66 ukazuje da je numera pretežno govorni sadržaj, Instrumentalness iznad 0.5 ukazuje na instrumentalnu numeru bez vokala, a Liveness iznad 0.8 ukazuje na veliku verovatnoću da je snimak uživo izvođenje.
 
@@ -1446,9 +1454,9 @@ wilcox_effsize(Stream ~ Is_live, data = data)
 
 Sve tri binarne klasifikacije pokazuju statistički značajnu, ali po rstatix klasifikaciji malu (*small*) razliku u Stream-u. Is_instrumental pokazuje relativno najizraženiji efekat, dok ostale dve kolone imaju slabiji efekat.
 
-## Key (muzički tonalitet)
+## Key 
 
-Key predstavlja muzički tonalitet pesme, kodiran kao ceo broj od 0 do 11, pri čemu vrednost -1 označava da tonalitet nije detektovan. Iako je Key tehnički numerički kodiran, on je po prirodi kategorijska promenljiva - brojevi ne nose redosled ili magnitudu (tonalitet 5 nije "veći" od tonaliteta 2), pa ga tretiramo kao faktor.
+Key predstavlja muzički tonalitet pesme, kodiran kao ceo broj od 0 do 11, pri čemu vrednost -1 označava da tonalitet nije detektovan. Iako je Key tehnički numerički kodiran, on je po prirodi kategorijska promenljiva - brojevi ne nose redosled, pa možemo da ga tretiramo kao faktor.
 
 ```{r}
 data <- data %>%
@@ -1470,7 +1478,7 @@ ggplot(data, aes(x = Key_faktor, y = log1p(Stream), fill = Key_faktor)) +
   theme(legend.position = "none")
 ```
 
-Kruskal-Wallis test za Key_faktor pokazuje jako mali, zanemarljiv effect size.
+Kruskal-Wallis test za Key_faktor pokazuje jako mali effect size, koji je zanemarljiv.
 
 ## Kolaboracija (feat. u nazivu pesme)
 
@@ -1489,7 +1497,7 @@ wilcox_effsize(Stream ~ Is_collab, data = data)
 
 Ova kolona takođe pokazuje jako slabu povezanost sa kolonom Stream.
 
-## Licensed x official_video (kombinovana kategorija)
+## Licensed i official_video
 
 Licensed i official_video pojedinačno imaju mali, ali statistički značajan efekat na Stream, i međusobno su povezane. Umesto da ih koristimo kao dve odvojene binarne kolone, kombinujemo ih u jednu kategorijsku promenljivu sa 4 nivoa.
 
@@ -1726,16 +1734,17 @@ kruskal_effsize(data, Stream ~ Genre)
 **Napomena:** za izvođače kod kojih žanr dolazi iz audio-heuristike (fallback), postoji cirkularnost - ista audio svojstva (Speechiness, Instrumentalness...) su i ulaz za određivanje žanra i zaseban prediktor u modelu, pa `Genre` u tom delu skupa dodaje malo nove informacije preko postojećih audio kolona. Kod izvođača sa žanrom iz API-ja (`Genre_source == "spotify_api"`), `Genre` nosi nezavisnu informaciju (stvarni žanr sa Spotify-a), pa je taj deo dela vrednija za model.
 
 
-# Multivarijantna analiza - Stream
+# Multivarijantna analiza
 
-Bivarijantna analiza i feature engineering pokazuju kako se svaka promenljiva pojedinačno odnosi prema Stream-u. Multivarijantna analiza ispituje kako prediktori zajedno objašnjavaju Stream, uz sinergiju, i - specifično ovde - koliko YouTube strana podataka dodaje preko onoga što Spotify strana (audio karakteristike, izvođač, žanr) već objašnjava. Ovo je direktan nastavak diskusije iz odeljka "Izbor ciljne promenljive" - tamo smo argumentovali da je ovo pitanje kod Stream-a mnogo sadržajnije nego što bi bilo obrnuto pitanje kod Views-a, i sada ga formalno testiramo.
+Bivarijantna analiza i feature engineering su nam dali uvid u to kako se svaka promenljiva pojedinačno odnosi prema Stream-u. Multivarijantna analiza nam objašnjava kako potencijalni prediktori međusobno figurišu i pruža nam mogućnost da uočimo neka specifična ponašanja, kao što je na primer sinergija.
+
 
 ## Izbor prediktora i dva modela
 
 - **Model A - "Spotify-only"** (bez YouTube atributa): Artist_LOO_stream, Album_type, Genre, audio karakteristike (Danceability, Energy, Loudness, Speechiness, Acousticness, Instrumentalness, Liveness, Valence, Tempo, Duration_ms). Ovo su promenljive koje (osim Genre iz API-ja) postoje nezavisno od toga da li pesma ima YouTube spot.
-- **Model B - "sa YouTube signalom"**: Model A + log1p(Views), Licensed, official_video - "video-side" signal popularnosti.
+- **Model B - "sa YouTube signalom"**: Model A + log1p(Views), Licensed, official_video - signal popularnosti sa druge platforme.
 
-**Napomena o data leakage-u.** Views, Licensed i official_video se mere u istom (ili kasnijem) vremenskom okviru kao i sam Stream, ne pre objave pesme - Model B je svesno eksplanatoran, ne strogo prediktivan unapred. Likes i Comments ostaju izostavljeni iz oba modela zbog najjačeg rizika od data leakage-a i redundantnosti sa Views-om.
+**Napomena o curenju podataka.** Views, Licensed i official_video se mere u istom vremenskom okviru kao i sam Stream, ne pre objave pesme. Likes i Comments ostaju izostavljeni iz oba modela zbog kolinearnosti sa Views.
 
 Oba modela grade se samo nad pesmama koje imaju YouTube spot (`has_youtube`), jer Views/Licensed/official_video imaju smisla samo tada - ovo obezbeđuje da su Model A i Model B upoređeni nad identičnim skupom redova (razlika u R² dolazi isključivo od dodatih promenljivih, ne od različitog uzorka).
 
