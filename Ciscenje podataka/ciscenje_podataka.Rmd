@@ -32,6 +32,7 @@ Prvo ćemo proveriti da li postoje duplikati među redovima, tj. redovi kod koji
 ```{r}
 data %>% filter(duplicated(.)) %>% nrow()
 ```
+
 Kao što možemo videti, nema u potpunosti identičnih redova u dataset-u. Prilikom univarijatne analize primetili smo da postoji više unosa istih pesama sa različitim autorima, što je sasvim validno ponašanje kako je moguće da postoje pesme sa više autora i ovakve redove nećemo uklanjati, kako su relevantni za analizu i predikciju. Međutim, neophodno je da proverimo da li postoje redovi gde nije reč o koautorskim pesmama, već je više puta unesena ista pesma sa istim autorom, tako što ćemo prebrojati broj pojavljivanja pesme i broj različitih autora. 
 
 ```{r}
@@ -252,7 +253,7 @@ yt_missing_summary <- data %>%
 
 yt_missing_summary
 ```
--
+
 Obzirom da su ovo podaci čija se prediktivna moć kasnije može koristiti, a nema smisla da popunjavamo Views/Comments/Likes mean ili median vrednostima, dodaćemo indikatorsku kolonu koja će ukazivati na to da li postoji Youtube video, što ćemo kasnije i moći da iskoristimo prilikom kreiranja modela, a u numeričke kolone upisaćemo 0. U kolone koje kategorijskog tipa, upisaćemo tekstualne vrednosti koje ukazuje na to da video ne postoji, kako ćemo svakako prilikom korišćenja ovakvih kolona koristiti i novu, has_youtube kolonu.
 
 ```{r}
@@ -293,7 +294,6 @@ data %>%
   filter(broj_NA > 0) %>%
   arrange(desc(broj_NA))
 ```
-Sada su preostali još samo Stream, Comments i Likes.
 
 ### Likes i Comments
 
@@ -429,7 +429,6 @@ data %>%
 Ono što je problem u ovom pristupa je što postoji i 10 pesama za koje artist nema nijednu pesmu, tako da ćemo u ovoj situaciji koristiti poslednju opciju, odnosno merenje medijane stream-ova nad pesmama za koje ne postoji spot na Youtube-u.
 
 ```{r}
-
 median_stream_bez_yt <- data %>%
   filter(!has_youtube, !is.na(Stream)) %>%
   summarise(median = median(Stream)) %>%

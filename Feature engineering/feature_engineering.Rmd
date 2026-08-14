@@ -29,7 +29,7 @@ data = read.csv('Spotify_Youtube.csv', header = T)
 
 Iz bivarijantne analize znamo da Artist ima uticaj na Stream, odnosno top izvođači su konstantno popularni, ali kolona ima previše jedinstvenih vrednosti da bi mogla direktno da se koristi u modelu bez enkodiranja.
 
-Prva pomisao je da iskoristimo prosečan (mean) Stream po izvođaču kao numerički feature, međutim ovaj pristup nosi rizik od data leakage-a, jer ako u prosek uključimo i Stream same pesme, ta pesma delimično "vidi" sopstvenu ciljnu vrednost kroz feature, što je posebno problematično kod izvođača sa svega par pesama u skupu.
+Prva pomisao je da iskoristimo prosečan (median) Stream po izvođaču kao numerički feature, međutim ovaj pristup nosi rizik od data leakage-a, jer ako u prosek uključimo i Stream same pesme, ta pesma delimično "vidi" sopstvenu ciljnu vrednost kroz feature, što je posebno problematično kod izvođača sa svega par pesama u skupu.
 
 Takođe postoji mogućnost da prost broj pesama po izvođaču (frequency encoding) bude dovoljan, ali kako iz univarijantne analize znamo da skoro svaki izvođač ima tačno 10 pesama u skupu, ova kolona bi imala jako malo varijanse i nosila bi slab signal.
 
