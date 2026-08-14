@@ -37,6 +37,9 @@ library(reshape2)
 library(rstatix)
 library(psych)
 library(car)
+library(randomForest)
+library(xgboost)
+library(lightgbm)
 
 data = read.csv("Spotify_Youtube.csv", header = T)
 ```
@@ -1490,6 +1493,8 @@ data <- data %>%
   ungroup() %>%
   mutate(Artist_LOO_stream = ifelse(is.na(Artist_LOO_stream), median(Stream, na.rm = TRUE), Artist_LOO_stream))
 
+data = data %>% select(-Artist_n_pesama)
+
 sum(is.na(data$Artist_LOO_stream))
 ```
 
@@ -1534,7 +1539,7 @@ cor.test(data$Comments_rate, data$Stream, method = "spearman")
 
 ## Mood kvadrant (Valence x Energy)
 
-Nijedna audio karakteristika pojedinačno ne prelazi korelaciju od |0.14| sa Stream-om, što ukazuje da to kako pesma zvuči ima slab pojedinačan uticaj na njenu popularnost. Umesto da posmatramo karakteristike izolovano, pokušavamo da ih kombinujemo na način koji ima muzički smisao, u nadi da kombinacija nosi jači signal od pojedinačnih kolona. Valence i Energy su dve karakteristike koje se u muzičkoj psihologiji često kombinuju u kvadrant raspoloženja.
+Nijedna audio karakteristika pojedinačno ne prelazi korelaciju od |0.14| sa Stream-om, što ukazuje da to kako pesma zvuči ima slab pojedinačan uticaj na njenu popularnost. Umesto da posmatramo karakteristike izolovano, pokušaćemo da ih kombinujemo na način koji ima muzički smisao, za slučaj da kombinacija nosi jači signal od pojedinačnih kolona. Valence i Energy su dve karakteristike koje se u muzičkoj psihologiji često kombinuju u kvadrant raspoloženja.
 
 ```{r}
 data <- data %>%
@@ -1553,6 +1558,7 @@ kruskal_effsize(data, Stream ~ Mood_kvadrant)
 
 Kruskal-Wallis effect size za Mood_kvadrant spada u kategoriju zanemarljivo malog efekta - sa preko 20.000 opservacija statistička značajnost je gotovo neizbežna čak i kod praktično beznačajnih razlika, pa effect size ostaje pouzdaniji pokazatelj stvarne prediktivne vrednosti.
 
+
 ## Danceability i Energy (Party index)
 
 Pošto kombinacija Valence i Energy (Mood_kvadrant) pokazuje zanemarljiv efekat, probamo drugu kombinaciju audio karakteristika koja ima smisla iz domenskog znanja - Danceability i Energy zajedno bi trebalo da opisuju koliko je pesma zabavna i energična. Umesto kategorijske podele, pravimo feature množenjem dve vrednosti, kako bismo zadržali kontinualnu prirodu podataka.
@@ -1564,11 +1570,11 @@ data <- data %>%
 cor.test(data$Party_index, data$Stream, method = "spearman")
 ```
 
-Party_index ima nešto jaču vezu sa Stream-om nego njegove pojedinačne komponente, iako sve tri vrednosti ostaju u okviru slabog opsega korelacije već utvrđenog u bivarijantnoj analizi za audio karakteristike.
+Party_index ima nešto jaču vezu sa Stream-om nego njegove pojedinačne komponente, ali su i dalje sve vrednosti veoma slabo korelisane.
 
 ## Binarna klasifikacija audio karakteristika
 
-Spotify-jeva zvanična dokumentacija predlaže konkretne pragove za pojedine audio karakteristike koji ukazuju na specifičnu vrstu sadržaja - npr. Speechiness iznad 0.66 ukazuje da je numera pretežno govorni sadržaj, Instrumentalness iznad 0.5 ukazuje na instrumentalnu numeru bez vokala, a Liveness iznad 0.8 ukazuje na veliku verovatnoću da je snimak uživo izvođenje.
+Spotify-jeva zvanična dokumentacija predlaže konkretne pragove za pojedine audio karakteristike koji ukazuju na specifičnu vrstu sadržaja, npr. Speechiness iznad 0.66 ukazuje da je numera pretežno govorni sadržaj, Instrumentalness iznad 0.5 ukazuje na instrumentalnu numeru bez vokala, a Liveness iznad 0.8 ukazuje na veliku verovatnoću da je snimak uživo izvođenje.
 
 ```{r}
 data <- data %>%
@@ -1592,7 +1598,8 @@ wilcox.test(Stream ~ Is_live, data = data)
 wilcox_effsize(Stream ~ Is_live, data = data)
 ```
 
-Sve tri binarne klasifikacije pokazuju statistički značajnu, ali po rstatix klasifikaciji malu (*small*) razliku u Stream-u. Is_instrumental pokazuje relativno najizraženiji efekat, dok ostale dve kolone imaju slabiji efekat.
+Sve tri binarne klasifikacije pokazuju statistički značajnu, ali po rstatix klasifikaciji malu (*small*) razliku u Stream-u. Is_instrumental pokazuje relativno najizražajniji efekat.
+
 
 ## Key 
 
@@ -1649,7 +1656,7 @@ data <- data %>%
       Licensed == "True" & official_video == "False" ~ "Licensed_unofficial",
       Licensed == "False" & official_video == "True" ~ "Unlicensed_official",
       Licensed == "False" & official_video == "False" ~ "Unlicensed_unofficial",
-      TRUE ~ NA_character_
+      TRUE ~ 'Unknown'
     ),
     Licensed_video_combo = factor(Licensed_video_combo)
   )
@@ -1664,219 +1671,10 @@ kruskal_effsize(data, Stream ~ Licensed_video_combo)
 
 Kombinovana kategorija Licensed_video_combo pokazuje slab efekat na Stream, u skladu sa pojedinačnim efektima Licensed i official_video iz bivarijantne analize.
 
-## Genre (žanr izvođača)
-
-Skup podataka ne sadrži žanr pesme. Spotify Web API vezuje žanr za **izvođača**, ne za pojedinačnu pesmu (endpoint `GET /v1/artists` vraća `genres` niz po izvođaču) - to nije isto što i endpoint za audio karakteristike (`/audio-features`), koji je Spotify ugasio za nove aplikacije u novembru 2024. i koji nam ionako ne treba, jer audio karakteristike već imamo u CSV-u. Endpoint za osnovne podatke o izvođaču (uključujući `genres`) i dalje radi za sve aplikacije.
-
-**Napomena o pristupu:** kod ispod pokušava da dohvati žanr preko Spotify API-ja SAMO ako su `SPOTIFY_CLIENT_ID` i `SPOTIFY_CLIENT_SECRET` postavljeni u `.Renviron` (vidi `Sys.getenv()` ispod). Ako kredencijali nisu podešeni, ili API poziv iz bilo kog razloga ne uspe (mrežna greška, izvođač nije pronađen, prazan `genres` niz), kod automatski prelazi na **fallback zasnovan na audio karakteristikama** (pravila po pragovima), tako da fajl radi bez greške i bez kredencijala. Rezultati API poziva se čuvaju u lokalnom `artist_genres_cache.rds`, tako da se pretraga ne ponavlja pri svakom narednom knit-ovanju.
-
-Zbog broja jedinstvenih izvođača (>2000), pretraga preko `/v1/search` je najsporiji korak (jedan poziv po izvođaču) - prvo pokretanje sa kredencijalima može potrajati nekoliko minuta; naredna pokretanja koriste keš.
-
-```{r}
-SKIP_SPOTIFY_API <- FALSE # postavi na TRUE da se API nikad ne pokušava (samo fallback)
-CACHE_PATH <- "artist_genres_cache.rds"
-
-get_spotify_token <- function() {
-  client_id <- Sys.getenv("SPOTIFY_CLIENT_ID")
-  client_secret <- Sys.getenv("SPOTIFY_CLIENT_SECRET")
-
-  if (client_id == "" || client_secret == "") {
-    return(NULL)
-  }
-
-  tryCatch(
-    {
-      resp <- request("https://accounts.spotify.com/api/token") %>%
-        req_auth_basic(client_id, client_secret) %>%
-        req_body_form(grant_type = "client_credentials") %>%
-        req_retry(max_tries = 2, max_seconds = 5) %>%
-        req_perform()
-
-      resp_body_json(resp)$access_token
-    },
-    error = function(e) {
-      message("Spotify autentifikacija nije uspela, prelazim na audio-heuristiku: ", conditionMessage(e))
-      NULL
-    }
-  )
-}
-
-search_artist_id <- function(artist_name, token) {
-  tryCatch(
-    {
-      resp <- request("https://api.spotify.com/v1/search") %>%
-        req_url_query(q = artist_name, type = "artist", limit = 1) %>%
-        req_auth_bearer_token(token) %>%
-        req_retry(max_tries = 3, max_seconds = 5) %>%
-        req_perform()
-
-      items <- resp_body_json(resp)$artists$items
-      if (length(items) == 0) {
-        return(NA_character_)
-      }
-      items[[1]]$id
-    },
-    error = function(e) NA_character_
-  )
-}
-
-get_artists_genres_batch <- function(artist_ids, token) {
-  artist_ids <- artist_ids[!is.na(artist_ids)]
-  if (length(artist_ids) == 0) {
-    return(tibble(artist_id = character(), genres = list()))
-  }
-
-  chunks <- split(artist_ids, ceiling(seq_along(artist_ids) / 50))
-
-  map_dfr(chunks, function(ids) {
-    tryCatch(
-      {
-        resp <- request("https://api.spotify.com/v1/artists") %>%
-          req_url_query(ids = paste(ids, collapse = ",")) %>%
-          req_auth_bearer_token(token) %>%
-          req_retry(max_tries = 3, max_seconds = 5) %>%
-          req_perform()
-
-        artists <- resp_body_json(resp)$artists
-        tibble(
-          artist_id = ids,
-          genres = map(artists, function(a) if (is.null(a$genres)) list() else a$genres)
-        )
-      },
-      error = function(e) {
-        tibble(artist_id = ids, genres = vector("list", length(ids)))
-      }
-    )
-  })
-}
-
-map_genre_broad <- function(genres_vec) {
-  if (length(genres_vec) == 0 || all(is.na(genres_vec))) {
-    return(NA_character_)
-  }
-  g <- paste(tolower(unlist(genres_vec)), collapse = " ")
-
-  case_when(
-    str_detect(g, "hip hop|rap|trap") ~ "Hip-Hop/Rap",
-    str_detect(g, "r&b|soul|funk") ~ "R&B/Soul",
-    str_detect(g, "edm|electro|house|techno|dance|dubstep|trance") ~ "Electronic/Dance",
-    str_detect(g, "rock|metal|punk|grunge") ~ "Rock",
-    str_detect(g, "country|folk|bluegrass|americana") ~ "Country/Folk",
-    str_detect(g, "latin|reggaeton|salsa|bachata") ~ "Latin",
-    str_detect(g, "classical|instrumental|ambient|soundtrack") ~ "Instrumental",
-    str_detect(g, "pop") ~ "Pop",
-    TRUE ~ "Other"
-  )
-}
-```
-
-Fallback pravila po pragovima nad audio karakteristikama - koriste se samo kada API ne vrati žanr za datog izvođača:
-
-```{r}
-genre_from_audio <- function(speechiness, instrumentalness, acousticness, energy, danceability, valence, loudness) {
-  case_when(
-    speechiness > 0.66 ~ "Hip-Hop/Rap",
-    instrumentalness > 0.5 ~ "Instrumental",
-    acousticness > 0.6 & energy < 0.4 ~ "Country/Folk",
-    danceability > 0.7 & energy > 0.6 & valence > 0.5 ~ "Electronic/Dance",
-    energy > 0.7 & loudness > -6 & speechiness < 0.33 ~ "Rock",
-    TRUE ~ "Pop/Other"
-  )
-}
-```
-
-Dohvatanje žanra po jedinstvenom izvođaču (sa keširanjem):
-
-```{r}
-unique_artists <- unique(data$Artist)
-
-artist_genre_lookup <- tibble(Artist = character(), Genre_api = character())
-
-if (file.exists(CACHE_PATH)) {
-  artist_genre_lookup <- readRDS(CACHE_PATH)
-}
-
-vec_novi_izvodjaci <- setdiff(unique_artists, artist_genre_lookup$Artist)
-
-if (!SKIP_SPOTIFY_API && length(vec_novi_izvodjaci) > 0) {
-  token <- get_spotify_token()
-
-  if (!is.null(token)) {
-    BATCH_SIZE <- 100
-    batches <- split(vec_novi_izvodjaci, ceiling(seq_along(vec_novi_izvodjaci) / BATCH_SIZE))
-
-    for (batch in batches) {
-      # Faza 1: search po imenu (jedan poziv po izvodjacu - /v1/search ne podrzava batch)
-      ids <- map_chr(batch, function(nm) {
-        id <- search_artist_id(nm, token)
-        Sys.sleep(0.15)
-        id
-      })
-
-      # Faza 2: zanrovi za sve razresene ID-jeve iz ovog batch-a, grupno (do 50 po pozivu)
-      genres_res <- get_artists_genres_batch(ids, token)
-      genre_by_id <- setNames(map_chr(genres_res$genres, map_genre_broad), genres_res$artist_id)
-
-      novi_rezultati <- tibble(
-        Artist = batch,
-        artist_id = ids,
-        Genre_api = ifelse(is.na(ids), NA_character_, genre_by_id[ids])
-      ) %>% select(-artist_id)
-
-      artist_genre_lookup <- bind_rows(artist_genre_lookup, novi_rezultati)
-      saveRDS(artist_genre_lookup, CACHE_PATH)
-    }
-  }
-}
-
-artist_genre_lookup %>% count(is.na(Genre_api))
-```
-
-Spajanje sa glavnim skupom i primena fallback-a tamo gde API nije vratio žanr:
-
-```{r}
-data <- data %>%
-  left_join(artist_genre_lookup, by = "Artist") %>%
-  mutate(
-    Genre_source = ifelse(!is.na(Genre_api), "spotify_api", "audio_heuristic"),
-    Genre = ifelse(
-      !is.na(Genre_api),
-      Genre_api,
-      genre_from_audio(Speechiness, Instrumentalness, Acousticness, Energy, Danceability, Valence, Loudness)
-    ),
-    Genre = factor(Genre)
-  ) %>%
-  select(-Genre_api)
-
-data %>% count(Genre_source)
-```
-
-```{r}
-data %>%
-  count(Genre) %>%
-  arrange(desc(n))
-```
-
-```{r}
-ggplot(data, aes(x = fct_infreq(Genre), y = log1p(Stream), fill = Genre)) +
-  geom_violin(trim = FALSE, alpha = 0.8) +
-  geom_boxplot(width = 0.1, outlier.shape = NA, alpha = 0.3) +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 30, hjust = 1), legend.position = "none") +
-  labs(title = "Distribucija Stream-a po Genre (log skala)", x = "", y = "log(Stream + 1)")
-```
-
-```{r}
-kruskal.test(Stream ~ Genre, data = data)
-kruskal_effsize(data, Stream ~ Genre)
-```
-
-**Napomena:** za izvođače kod kojih žanr dolazi iz audio-heuristike (fallback), postoji cirkularnost - ista audio svojstva (Speechiness, Instrumentalness...) su i ulaz za određivanje žanra i zaseban prediktor u modelu, pa `Genre` u tom delu skupa dodaje malo nove informacije preko postojećih audio kolona. Kod izvođača sa žanrom iz API-ja (`Genre_source == "spotify_api"`), `Genre` nosi nezavisnu informaciju (stvarni žanr sa Spotify-a), pa je taj deo dela vrednija za model.
-
-
 # Multivarijantna analiza
 
 Bivarijantna analiza i feature engineering su nam dali uvid u to kako se svaka promenljiva pojedinačno odnosi prema Stream-u. Multivarijantna analiza nam objašnjava kako potencijalni prediktori međusobno figurišu i pruža nam mogućnost da uočimo neka specifična ponašanja, kao što je na primer sinergija.
+
 
 
 ## Izbor prediktora i dva modela
@@ -1948,7 +1746,7 @@ par(mfrow = c(2, 2))
 plot(model_B)
 ```
 
-Dijagnostika pokazuje da oba modela imaju isti problem, reziduali nisu ni savršeno homogeni ni normalni, pa postoji blaga heteroskedastičnost  i primetan rep pesama koje model sistematski precenjuje, gde stvarni Stream ispadne mnogo niži nego što model predviđa.  Realni zaključak je da su modeli dobro uhvatili glavni trend u podacima, ali imaju grešku sa određeneom podgrupom pesama (verovatno baš onih na velikom popularnošću), što se i moglo očekivati, obzirom na to koliko je Stream desno asimetričan čak i posle log transformacije.
+Ovakakva dijagnostika pokazuje da oba modela imaju isti problem, reziduali nisu ni savršeno homogeni ni normalni, pa postoji blaga heteroskedastičnost  i primetan rep pesama koje model precenjuje, gde stvarni Stream ispadne mnogo niži nego što model predviđa.  Realni zaključak je da su modeli dobro uhvatili glavni trend u podacima, ali imaju grešku sa određeneom podgrupom pesama (verovatno baš onih na velikom popularnošću), što se i moglo očekivati, obzirom na to koliko je Stream desno asimetričan čak i posle log transformacije.
 
 
 ## Sinergija (interakcioni efekti)
@@ -1974,5 +1772,293 @@ summary(model_B_interakcije)
 ```{r}
 anova(model_B, model_B_interakcije)
 ```
-Iz ovoga možemo zaključiti da baš i nema sinergije među ovim prediktorima, jer se vrednost R² nije drastično povećala, a F-statistika se smanjila.
+
+Iz ovoga možemo zaključiti da baš i nema sinergije među ovim prediktorima, jer se vrednost R² nije drastično povećala, a F-statistika se dodatno smanjila.
+
+
+# Pretprocesiranje podataka
+
+Brišemo linkove i kolone bez prediktivne vrednosti za modele, kao i kolone koje su višak zbog feature engeneering-a, ili su nastale feature engineering-om, a nisu se pokazale kao da bi imale veći potencijal od inicijalnih verzija kolona.
+
+```{r}
+data = data %>% select(-X, -Url_spotify, -Uri, -Url_youtube, -Title, -Description, -Channel, -Album, -Key, -Mood_kvadrant, -Is_collab, -Is_spoken, -Is_instrumental, -Is_live, -Licensed, -official_video , Likes, Comments)
+
+ncol(data)
+names(data)
+```
+Radimo faktorizaciju kolona za koje je to potrebno.
+
+```{r}
+data <- data %>%
+  mutate(
+    Licensed_video_combo = as.character(Licensed_video_combo),
+    Licensed_video_combo = factor(Licensed_video_combo,levels = c("Licensed_official", "Licensed_unofficial", "Unlicensed_official", "Unlicensed_unofficial", "Unknown")),
+    Album_type = factor(Album_type))
+
+data <- data %>% mutate(across(where(is.logical), as.factor))
+```
+
+Podatke delimo na train i test i čuvamo ih u fajlove.
+
+```{r}
+n <- nrow(data)
+train_idx <- sample(seq_len(n), size = floor(0.8 * n))
+
+train <- data[train_idx, ]
+test <- data[-train_idx, ]
+
+nrow(train)
+nrow(test)
+```
+
+```{r}
+out_dir <- "Podaci_za_model"
+dir.create(out_dir, showWarnings = FALSE)
+
+write_csv(train, file.path(out_dir, "train.csv"))
+write_csv(test, file.path(out_dir, "test.csv"))
+```
+
+
+# Modeli
+
+## Napredni modeli mašinskog učenja
+
+Pored linearne regresije, testiraćemo i tri boosting algoritma, kako bismo videli da li nelinearni modeli i interakcije koje oni automatski hvataju donose bolju prediktivnu moć. Svi modeli se evaluiraju na istom test skupu koji nijedan model nije video tokom treniranja, koristeći MAE i RMSE na log(Stream) skali.
+
+Random Forest je bagging pristup (svako stablo se trenira nad bootstrap uzorkom, a predikcije se usrednjavaju), dok su XGBoost i LightGBM boosting algoritmi (stabla se dodaju sekvencijalno, svako ispravlja greške prethodnih). Sva tri su neparametarski modeli zasnovani na stablima odlučivanja, pa automatski hvataju nelinearnosti i interakcije između prediktora bez potrebe da ih ručno definišemo, za razliku od linearne regresije.
+
+### Priprema za napredne modele
+
+Učitavamo `train.csv`/`test.csv` iz `Podaci_za_model` foldera - napredni modeli deo ne zavisi od toga da li je prethodni deo dokumenta uopšte pokretan u istoj sesiji.
+
+```{r message=FALSE}
+train <- read_csv("Podaci_za_model/train.csv")
+test <- read_csv("Podaci_za_model/test.csv")
+
+nrow(train)
+nrow(test)
+```
+
+`write_csv`/`read_csv` ne čuvaju tip faktora (sve što je bilo faktor postaje običan tekst pri čuvanju, a `has_youtube` postaje logička kolona), pa ih vraćamo nazad.
+
+```{r}
+uskladi_tipove <- function(df) {
+  df %>%
+    mutate(
+      Album_type = factor(Album_type),
+      Licensed_video_combo = factor(
+        Licensed_video_combo,
+        levels = c("Licensed_official", "Licensed_unofficial", "Unlicensed_official", "Unlicensed_unofficial", "Unknown")
+      ),
+      has_youtube = factor(has_youtube)
+    )
+}
+
+train_ml <- uskladi_tipove(train)
+test_ml <- uskladi_tipove(test)
+```
+
+Formula je ista za sva tri modela.
+
+```{r}
+formula_ml <- as.formula(
+  log1p(Stream) ~ Album_type + Danceability + Energy + Loudness + Speechiness +
+    Acousticness + Instrumentalness + Liveness + Valence + Tempo + Duration_ms +
+    Views + has_youtube + Artist_LOO_stream + Likes_rate + Comments_rate +
+    Party_index + Licensed_video_combo
+)
+```
+
+XGBoost i LightGBM zahtevaju numeričku matricu, pa kategorijske kolone kodiramo preko `model.matrix`. Pošto sad train/test dolaze iz dva odvojena fajla, privremeno ih spajamo da bi matrica imala identične kolone za oba, pa ih posle delimo nazad po broju redova iz `train.csv`.
+
+```{r}
+n_train <- nrow(train_ml)
+
+data_za_matricu <- bind_rows(train_ml, test_ml)
+X_full <- model.matrix(formula_ml, data = data_za_matricu)[, -1]
+y_full <- log1p(data_za_matricu$Stream)
+
+X_train <- X_full[1:n_train, ]
+X_test <- X_full[(n_train + 1):nrow(X_full), ]
+y_train <- y_full[1:n_train]
+y_test <- y_full[(n_train + 1):length(y_full)]
+
+dim(X_train)
+dim(X_test)
+```
+
+Za XGBoost i LightGBM dodatno izdvajamo validacioni skup iz `train` dela (80/20), koji koristimo isključivo za *early stopping*.
+
+```{r}
+set.seed(123)
+val_idx <- sample(seq_len(nrow(X_train)), size = floor(0.2 * nrow(X_train)))
+
+X_fit <- X_train[-val_idx, ]
+X_valid <- X_train[val_idx, ]
+y_fit <- y_train[-val_idx]
+y_valid <- y_train[val_idx]
+```
+
+Zajednička funkcija za evaluaciju, sva tri modela upoređujemo pomoću MAE i RMSE na `log1p(Stream)` skali, kao dodatak i R².
+
+```{r}
+eval_metrics <- function(actual_log, pred_log) {
+  rmse_log <- sqrt(mean((actual_log - pred_log)^2))
+  mae_log <- mean(abs(actual_log - pred_log))
+  r2_log <- 1 - sum((actual_log - pred_log)^2) / sum((actual_log - mean(actual_log))^2)
+  tibble(RMSE_log = rmse_log, MAE_log = mae_log, R2_log = r2_log)
+}
+```
+
+### Random Forest
+
+Random Forest ne zahteva odvojen validacioni skup za rano zaustavljanje (koristi *out-of-bag* grešku interno kao ugrađenu proveru), pa ga treniramo direktno nad celim `train_ml`.
+
+```{r}
+set.seed(123)
+rf_model <- randomForest(
+  formula_ml,
+  data = train_ml,
+  ntree = 500,
+  importance = TRUE
+)
+
+rf_model
+```
+
+```{r}
+rf_pred <- predict(rf_model, newdata = test_ml)
+
+rf_eval <- eval_metrics(y_test, rf_pred) %>% mutate(Model = "Random Forest")
+rf_eval
+```
+
+```{r}
+rf_imp <- importance(rf_model) %>%
+  as.data.frame() %>%
+  rownames_to_column("Feature") %>%
+  arrange(desc(`%IncMSE`)) %>%
+  slice_head(n = 15)
+
+ggplot(rf_imp, aes(x = reorder(Feature, `%IncMSE`), y = `%IncMSE`)) +
+  geom_col(fill = "#1DB954") +
+  coord_flip() +
+  theme_minimal() +
+  labs(title = "Random Forest - važnost prediktora (top 15)", x = "", y = "% povećanje MSE nakon permutacije")
+```
+
+### XGBoost
+
+```{r}
+dtrain <- xgb.DMatrix(data = X_fit, label = y_fit)
+dvalid <- xgb.DMatrix(data = X_valid, label = y_valid)
+dtest <- xgb.DMatrix(data = X_test, label = y_test)
+
+xgb_params <- list(
+  objective = "reg:squarederror",
+  eval_metric = "rmse",
+  max_depth = 6,
+  eta = 0.05,
+  subsample = 0.8,
+  colsample_bytree = 0.8
+)
+
+set.seed(123)
+xgb_model <- xgb.train(
+  params = xgb_params,
+  data = dtrain,
+  nrounds = 2000,
+  watchlist = list(train = dtrain, valid = dvalid),
+  early_stopping_rounds = 50,
+  print_every_n = 100,
+  verbose = 1
+)
+```
+
+```{r}
+xgb_pred <- predict(xgb_model, dtest)
+
+xgb_eval <- eval_metrics(y_test, xgb_pred) %>% mutate(Model = "XGBoost")
+xgb_eval
+```
+
+```{r}
+xgb_imp <- xgb.importance(feature_names = colnames(X_train), model = xgb_model) %>%
+  as_tibble() %>%
+  slice_head(n = 15)
+
+ggplot(xgb_imp, aes(x = reorder(Feature, Gain), y = Gain)) +
+  geom_col(fill = "#1DB954") +
+  coord_flip() +
+  theme_minimal() +
+  labs(title = "XGBoost - važnost prediktora (top 15)", x = "", y = "Gain")
+```
+
+
+### LightGBM
+
+```{r}
+dtrain_lgb <- lgb.Dataset(data = X_fit, label = y_fit)
+dvalid_lgb <- lgb.Dataset.create.valid(dtrain_lgb, data = X_valid, label = y_valid)
+
+lgb_params <- list(
+  objective = "regression",
+  metric = "rmse",
+  learning_rate = 0.05,
+  num_leaves = 31,
+  feature_fraction = 0.8,
+  bagging_fraction = 0.8,
+  bagging_freq = 1
+)
+
+set.seed(123)
+lgb_model <- lgb.train(
+  params = lgb_params,
+  data = dtrain_lgb,
+  nrounds = 2000,
+  valids = list(valid = dvalid_lgb),
+  early_stopping_rounds = 50,
+  verbose = 1
+)
+```
+
+```{r}
+lgb_pred <- predict(lgb_model, X_test)
+
+lgb_eval <- eval_metrics(y_test, lgb_pred) %>% mutate(Model = "LightGBM")
+lgb_eval
+```
+
+```{r}
+lgb_imp <- lgb.importance(lgb_model) %>%
+  as_tibble() %>%
+  slice_head(n = 15)
+
+ggplot(lgb_imp, aes(x = reorder(Feature, Gain), y = Gain)) +
+  geom_col(fill = "#1DB954") +
+  coord_flip() +
+  theme_minimal() +
+  labs(title = "LightGBM - važnost prediktora (top 15)", x = "", y = "Gain")
+```
+
+### Poređenje modela
+
+```{r}
+rezultati_modela <- bind_rows(xgb_eval, lgb_eval) %>%
+  select(Model, RMSE_log, MAE_log, R2_log) %>%
+  arrange(RMSE_log)
+
+rezultati_modela
+```
+
+```{r}
+rezultati_modela %>%
+  pivot_longer(cols = c(RMSE_log, MAE_log), names_to = "Metrika", values_to = "Vrednost") %>%
+  ggplot(aes(x = reorder(Model, Vrednost), y = Vrednost, fill = Metrika)) +
+  geom_col(position = "dodge") +
+  coord_flip() +
+  theme_minimal() +
+  labs(title = "Poređenje naprednih modela (log(Stream) skala)", x = "", y = "Greška")
+```
 
