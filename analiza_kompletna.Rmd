@@ -1181,24 +1181,24 @@ data %>% filter(if_all(all_of(yt_cols), is.na)) %>% nrow()
 
 Nakon provere možemo da zaključimo da zaista postoji 470 redova gde nema nijednog podatka o Youtube videu.
 
-Obzirom da su ovo podaci čija se prediktivna moć kasnije može koristiti, a nema smisla da popunjavamo sve ove kolone nekim vrednostima, dodaćemo indikatorsku kolonu koja će ukazivati na to da li postoji Youtube video, što ćemo kasnije i moći da iskoristimo prilikom kreiranja modela, a u numeričke kolone upisaćemo 0. U kolone koje kategorijskog tipa, upisaćemo tekstualne vrednosti koje ukazuje na to da video ne postoji, kako ćemo svakako prilikom korišćenja ovakvih kolona koristiti i novu, has_youtube kolonu.
+Obzirom da su ovo podaci čija se prediktivna moć kasnije može koristiti, a nema smisla da popunjavamo sve ove kolone nekim vrednostima, dodaćemo indikatorsku kolonu koja će ukazivati na to da li postoji Youtube video, što ćemo kasnije i moći da iskoristimo prilikom kreiranja modela, a u numeričke kolone upisaćemo 0. U kolone koje kategorijskog tipa, upisaćemo tekstualne vrednosti koje ukazuje na to da video ne postoji, kako ćemo svakako prilikom korišćenja ovakvih kolona koristiti i novu, Has_youtube kolonu.
 
 
 ```{r}
 data = data %>%
-  mutate(has_youtube = ifelse(is.na(Views), FALSE, TRUE))
+  mutate(Has_youtube = ifelse(is.na(Views), FALSE, TRUE))
 
 data = data %>%
   mutate(
-    Views = ifelse(!has_youtube, 0, Views),
-    Likes = ifelse(!has_youtube, 0, Likes),
-    Comments = ifelse(!has_youtube, 0, Comments),
-    Url_youtube = ifelse(!has_youtube, "None", Url_youtube),
-    Title = ifelse(!has_youtube, "Unknown", Title),
-    Channel = ifelse(!has_youtube, "Unknown", Channel),
-    Description = ifelse(!has_youtube & is.na(Description), "No Description", Description),
-    Licensed = ifelse(!has_youtube, "Unknown", as.character(Licensed)),
-    Official_video = ifelse(!has_youtube, "Unknown", as.character(Official_video))
+    Views = ifelse(!Has_youtube, 0, Views),
+    Likes = ifelse(!Has_youtube, 0, Likes),
+    Comments = ifelse(!Has_youtube, 0, Comments),
+    Url_youtube = ifelse(!Has_youtube, "None", Url_youtube),
+    Title = ifelse(!Has_youtube, "Unknown", Title),
+    Channel = ifelse(!Has_youtube, "Unknown", Channel),
+    Description = ifelse(!Has_youtube & is.na(Description), "No Description", Description),
+    Licensed = ifelse(!Has_youtube, "Unknown", as.character(Licensed)),
+    Official_video = ifelse(!Has_youtube, "Unknown", as.character(Official_video))
   )
 
 data %>%
@@ -1239,7 +1239,7 @@ nrow(test)
 Da bismo popunili vrednost za Likes i Comments, prvo ćemo proveriti da li se ove nedostajuće vrednosti mahom javljaju na istim videima ili ne. Ovu i sve naredne provere radimo isključivo nad trening skupom.
 
 ```{r}
-train %>% filter(has_youtube) %>%
+train %>% filter(Has_youtube) %>%
   summarise(
     NA_Likes = sum(is.na(Likes)),
     NA_Comments = sum(is.na(Comments)),
@@ -1255,7 +1255,7 @@ Umesto da unapred pretpostavimo koja metoda imputacije daje najtačnije rezultat
 uporedi_metode_imputacije = function(data, target_col, seed = 123) {
   set.seed(seed)
 
-  poznato = data %>% filter(has_youtube, !is.na(.data[[target_col]]))
+  poznato = data %>% filter(Has_youtube, !is.na(.data[[target_col]]))
   n_test = floor(0.2 * nrow(poznato))
   test_idx = sample(seq_len(nrow(poznato)), n_test)
 
@@ -1312,13 +1312,13 @@ Za obe kolone kao najbolja metoda pokazala se regresija na osnovu views, tako da
 
 ```{r}
 fit_likes_comments_model = function(train_data, target_col) {
-  poznato = train_data %>% filter(has_youtube, !is.na(.data[[target_col]]))
+  poznato = train_data %>% filter(Has_youtube, !is.na(.data[[target_col]]))
   formula_reg = as.formula(paste0("log1p(", target_col, ") ~ log1p(Views)"))
   lm(formula_reg, data = poznato)
 }
 
 primeni_likes_comments_model = function(df, model, target_col) {
-  idx = df$has_youtube & is.na(df[[target_col]])
+  idx = df$Has_youtube & is.na(df[[target_col]])
   if (any(idx)) {
     df[[target_col]][idx] = expm1(predict(model, newdata = df[idx, ]))
   }
@@ -1333,8 +1333,8 @@ train = primeni_likes_comments_model(train, comments_model, "Comments")
 test = primeni_likes_comments_model(test, likes_model, "Likes")
 test = primeni_likes_comments_model(test, comments_model, "Comments")
 
-train %>% filter(has_youtube) %>% summarise(NA_Likes = sum(is.na(Likes)), NA_Comments = sum(is.na(Comments)))
-test %>% filter(has_youtube) %>% summarise(NA_Likes = sum(is.na(Likes)), NA_Comments = sum(is.na(Comments)))
+train %>% filter(Has_youtube) %>% summarise(NA_Likes = sum(is.na(Likes)), NA_Comments = sum(is.na(Comments)))
+test %>% filter(Has_youtube) %>% summarise(NA_Likes = sum(is.na(Likes)), NA_Comments = sum(is.na(Comments)))
 ```
 
 ### Stream
@@ -1382,12 +1382,12 @@ uporedi_metode = function(poznato, target_col, include_views = FALSE, seed = 123
   ) %>% arrange(MAE_log)
 }
 
-poznato_sa_yt = train %>% filter(has_youtube, !is.na(Stream))
+poznato_sa_yt = train %>% filter(Has_youtube, !is.na(Stream))
 rezultati_stream = uporedi_metode(poznato_sa_yt, "Stream", include_views = TRUE)
 rezultati_stream
 ```
 ```{r}
-poznato_bez_yt = train %>% filter(!has_youtube, !is.na(Stream))
+poznato_bez_yt = train %>% filter(!Has_youtube, !is.na(Stream))
 rezultati_stream_bez_yt = uporedi_metode(poznato_bez_yt, "Stream", include_views = FALSE)
 rezultati_stream_bez_yt
 ```
@@ -1395,7 +1395,7 @@ rezultati_stream_bez_yt
 Za obe vrste podataka, najbolje je koristiti imputaciju na osnovu Artist-a za grupu bez YouTube videa, dok se za grupu sa YouTube videom najbolje pokazala medijana po Views grupama.
 
 ```{r}
-train_yt = train %>% filter(has_youtube)
+train_yt = train %>% filter(Has_youtube)
 
 granice_views = quantile(train_yt$Views, probs = seq(0, 1, length.out = 11), na.rm = TRUE)
 granice_views = unique(granice_views)
@@ -1422,7 +1422,7 @@ impute_stream_yt = function(df) {
     select(-Views_grupa, -median_stream_views)
 }
 
-train_bez_yt = train %>% filter(!has_youtube)
+train_bez_yt = train %>% filter(!Has_youtube)
 
 artist_median_stream_train = train_bez_yt %>%
   filter(!is.na(Stream)) %>%
@@ -1449,8 +1449,8 @@ impute_stream_bez_yt = function(df) {
 
 primeni_imputaciju_stream = function(df) {
   bind_rows(
-    df %>% filter(has_youtube) %>% impute_stream_yt(),
-    df %>% filter(!has_youtube) %>% impute_stream_bez_yt()
+    df %>% filter(Has_youtube) %>% impute_stream_yt(),
+    df %>% filter(!Has_youtube) %>% impute_stream_bez_yt()
   )
 }
 
@@ -1571,8 +1571,8 @@ Views, Likes i Comments su međusobno jako korelisani, pa to može izazvati prob
 dodaj_engagement_rate = function(df) {
   df %>%
     mutate(
-      Likes_rate = ifelse(has_youtube & Views > 0, Likes / Views, 0),
-      Comments_rate = ifelse(has_youtube & Views > 0, Comments / Views, 0)
+      Likes_rate = ifelse(Has_youtube & Views > 0, Likes / Views, 0),
+      Comments_rate = ifelse(Has_youtube & Views > 0, Comments / Views, 0)
     )
 }
 
@@ -1758,10 +1758,10 @@ Bivarijantna analiza i feature engineering su nam dali uvid u to kako se svaka p
 
 Views, Licensed i Official_video se mere u istom vremenskom okviru kao i sam Stream, ne pre objave pesme. Likes i Comments ostaju izostavljeni iz oba modela zbog kolinearnosti sa Views.
 
-Oba modela grade se samo nad pesmama koje imaju YouTube spot (`has_youtube`), jer Views,Licensed i Official_video imaju smisla samo tada - ovo obezbeđuje da su Model A i Model B upoređeni nad istim podacima.
+Oba modela grade se samo nad pesmama koje imaju YouTube spot (`Has_youtube`), jer Views,Licensed i Official_video imaju smisla samo tada - ovo obezbeđuje da su Model A i Model B upoređeni nad istim podacima.
 
 ```{r}
-data_model = train %>% filter(has_youtube) %>% mutate(Licensed = droplevels(Licensed), Official_video = droplevels(Official_video))
+data_model = train %>% filter(Has_youtube) %>% mutate(Licensed = droplevels(Licensed), Official_video = droplevels(Official_video))
 
 nrow(data_model)
 ```
@@ -1873,11 +1873,11 @@ ncol(train)
 names(train)
 ```
 
-Pored toga, u okviru podataka postoji problem koji će potencijalno nastati u okviru primene linearne regresije, a to će biti Views koji su postavljeni na 0, usled imputacije podataka, kako će ovo verovatno poremetiti linearni model koji ne može da zna da li su ovi podaci zapravo 0 ili ne, uprkos postojanju has_youtube kolone, tako da ćemo ove redove ipak obrisati, iako je ovo dobar faktor za pregledanje u okviru ensemble modela, kako bi ocene bile fer, tj. kako bi se modeli trenirali i ocenjivali na istim skupovima podataka.
+Pored toga, u okviru podataka postoji problem koji će potencijalno nastati u okviru primene linearne regresije, a to će biti Views koji su postavljeni na 0, usled imputacije podataka, kako će ovo verovatno poremetiti linearni model koji ne može da zna da li su ovi podaci zapravo 0 ili ne, uprkos postojanju Has_youtube kolone, tako da ćemo ove redove ipak obrisati, iako je ovo dobar faktor za pregledanje u okviru ensemble modela, kako bi ocene bile fer, tj. kako bi se modeli trenirali i ocenjivali na istim skupovima podataka.
 
 ```{r}
-data = data %>% filter(has_youtube == TRUE)
-data = data %>% select(-has_youtube)
+data = data %>% filter(Has_youtube == TRUE)
+data = data %>% select(-Has_youtube)
 ```
 
 
@@ -1939,7 +1939,7 @@ uskladi_tipove = function(df) {
         Licensed_video_combo,
         levels = c("Licensed_official", "Licensed_unofficial", "Unlicensed_official", "Unlicensed_unofficial", "Unknown")
       ),
-      has_youtube = factor(has_youtube)
+      Has_youtube = factor(Has_youtube)
     )
 }
 
