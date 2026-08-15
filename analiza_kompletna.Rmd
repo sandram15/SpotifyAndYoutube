@@ -105,9 +105,21 @@ Spisak kolona koje skup sadrži i kratak opis:
 
 26. Licensed – Da li je video registrovan kao licencirani sadržaj.
 
-27. official_video – Da li je video zvaničan spot pesme, za razliku od lyrics videa, izvedbe uživo ili fan-uploada.
+27. Official_video – Da li je video zvaničan spot pesme, za razliku od lyrics videa, izvedbe uživo ili fan-uploada.
 
 28. Stream – Broj stream-ova pesme na Spotify-u.
+
+Da bismo lakše radili sa podacima, i da bi sami nazivi kolona bili usklađeni, postavićemo tako da svaka kolona ima naziv sa početnim velikim slovom.
+
+```{r}
+names(data) = paste0(
+  toupper(substr(names(data), 1, 1)),
+  substr(names(data), 2,nchar(names(data)))
+  )
+
+names(data)
+```
+
 
 # Eksplorativna analiza podataka (EDA)
 
@@ -118,16 +130,16 @@ Jedna od odluka koju moramo doneti zarad kasnijeg kreiranja modela jeste koju bi
 U nastavku se nalazi pomoćna funkcija koja se koristi u univarijatnoj i bivarijatnoj analizi. Služi da proverava normalnost neke promenljive unutar svake kategorije jedne kategorijske promenljive, koristeći Shapiro-Wilk test sa bootstrap pristupom, za višestruko uzorkovanje, jer je Shapiro-Wilk previše osetljiv na velike uzorke da bi se pouzdano primenio direktno na ceo skup.
 
 ```{r}
-shapiro_boot <- function(data, group_col, value_col) {
-  categories <- unique(data[[group_col]])
-  categories <- categories[!is.na(categories)]
+shapiro_boot = function(data, group_col, value_col) {
+  categories = unique(data[[group_col]])
+  categories = categories[!is.na(categories)]
 
   lapply(categories, function(cat) {
-    values <- na.omit(data[[value_col]][data[[group_col]] == cat])
+    values = na.omit(data[[value_col]][data[[group_col]] == cat])
 
     if (length(values) > 3) {
-      p_values <- replicate(500, shapiro.test(sample(values, min(3000, length(values))))$p.value)
-      p_mean <- mean(p_values)
+      p_values = replicate(500, shapiro.test(sample(values, min(3000, length(values))))$p.value)
+      p_mean = mean(p_values)
 
       if (p_mean > 0.05) {
         sprintf("Varijabla %s po %s kategoriji ima normalnu raspodelu.", value_col, as.character(cat))
@@ -149,14 +161,17 @@ Kako bismo adekvatno analizirali uticaj različitih promenljivih na potencijalne
 - **Potencijalne ciljne promenljive** - Stream (broj stream-ova na Spotify-u) i Views (broj pregleda na Youtube spotu pesme)
 - **Audio karakteristike pesme** - kolone koje opisuju samu pesmu i njene zvučne karakteristike u obliku brojnih vrednosti - Danceability, Energy, Loudness, Speechiness, Acousticness, Instrumentalness, Liveness, Valence, Tempo
 - **Reakcije publike na YouTube-u** - kolone koje prikazuju samu reakciju publike na pesmu na YouTube-u - Likes, Comments
-- **Kategorije sadržaja** - podaci o tome da li je sadržaj licenciran i objavljen na zvaničnom YouTube kanalu - Licensed, official_video, da li je pesma objavljena u okviru albuma ili singla (Album)
+- **Kategorije sadržaja** - podaci o tome da li je sadržaj licenciran i objavljen na zvaničnom YouTube kanalu - Licensed, Official_video, da li je pesma objavljena u okviru albuma ili singla (Album)
 - **Izvođač** - podaci o tome ko je izvođač pesme (Artist), kao i na kom Youtube kanalu je objavljena određena pesma (Channel), kao i o tome na kom albumu je objavljena pesma (Album)
 
 ### Stream
 
+Stream je potencijalna ciljna promenljiva, i prvo ćemo proveriti njenu raspodelu.
+
 ```{r}
 summary(data$Stream)
 ```
+
 ```{r}
 sd(data$Stream, na.rm = TRUE)
 ```
@@ -164,11 +179,7 @@ sd(data$Stream, na.rm = TRUE)
 ```{r}
 ggplot(data, aes(x = Stream)) +
   geom_histogram(bins = 50, fill = "steelblue", color = "white") +
-  labs(
-    title = "Distribucija Stream", 
-    x = "Stream", 
-    y = "Broj pesama"
-    ) + 
+  labs(title = "Distribucija Stream",  x = "Stream",  y = "Broj pesama") + 
   theme_minimal()
 ```
 
@@ -193,8 +204,7 @@ Koeficijent spljoštenosti nam pokazuje u kojoj meri je neka raspodela spljošte
 [^1]: https://www.ef.uns.ac.rs/predmeti/oas/statistika/2020-01-10-des-deskriptivna-statistika.pd
 
 ```{r}
-data %>%
-  summarise(
+data %>% summarise(
     mean = mean(Stream, na.rm = TRUE),
     median = median(Stream, na.rm = TRUE),
     std = sd(Stream, na.rm = TRUE),
@@ -208,17 +218,14 @@ Na osnovu dobijenih vrednosti iz funkcije, pri čemu je skew znatno veći od 0.5
 ```{r}
 ggplot(data, aes(x = log(Stream))) +
   geom_histogram(bins = 50, fill = "steelblue", color = "white") +
-  labs(
-    title = "Distribucija Stream  nakon transformacije", 
-    x = "Stream", 
-    y = "Broj pesama"
-    ) + 
-  theme_minimal()
+  labs(title = "Distribucija Stream  nakon transformacije", x = "Stream", y = "Broj pesama") + theme_minimal()
 ```
 
 Nakon izvršene logaritamske transformacije, distribucija stream-ova postala je više simetrična i bliža je normalnoj raspodeli, što nam omogućava stabilniju analizu odnosa Stream-a i ostalih promenljivih.
 
 ### Views
+
+Views je takođe potencijalna ciljna promenljiva, i prvo ćemo proveriti njenu raspodelu, jer i kod nje postoji veliki rizik od desne asimetričnosti.
 
 ```{r}
 summary(data$Views)
@@ -226,11 +233,7 @@ summary(data$Views)
 ```{r}
 ggplot(data, aes(x = Views)) +
   geom_histogram(bins = 50, fill = "steelblue", color = "white") +
-  labs(
-    title = "Distribucija Views", 
-    x = "Views", 
-    y = "Broj pesama"
-    ) + 
+  labs(title = "Distribucija Views", x = "Views", y = "Broj pesama") + 
   theme_minimal()
 ```
 
@@ -247,16 +250,12 @@ data %>%
   )
 ```
 
-Kao što možemo videti, ovde je situacija identična kao kod Stream - jako visoka vrednost skew i pozitivna vrednost kurtosis-a ukazuje nam na jaku desnu asimetričnost.
+Kao što možemo videti, ovde je situacija identična kao kod Stream, jako visoka vrednost skew i pozitivna vrednost kurtosis-a ukazuje nam na jaku desnu asimetričnost.
 
 ```{r}
 ggplot(data, aes(x = log(Views))) +
   geom_histogram(bins = 50, fill = "steelblue", color = "white") +
-  labs(
-    title = "Distribucija Views nakon transformacije", 
-    x = "Views", 
-    y = "Broj pesama"
-    ) + 
+  labs(title = "Distribucija Views nakon transformacije", x = "Views", y = "Broj pesama") +
   theme_minimal()
 ```
 
@@ -264,14 +263,10 @@ Nakon logaritamske transformacije, kao i kod Stream promenljive, distribucija je
 
 ### Najpopularnije pesme
 
-Korisno je pogledati koje su konkretno pesme na vrhu liste po Stream-u, kako bismo sagledali neke osnovne osobine najslušanijih pesama, kao i kako ove pesme stoje sa vrednostima kolone Views, što ćemo izvršiti pregledom top 15 pesama na listi.
+Korisno je pogledati koje su konkretno pesme na vrhu liste po Stream-u, kako bismo sagledali neke osnovne osobine najslušanijih pesama, kao i kako ove pesme stoje sa vrednostima za Views, što ćemo izvršiti pregledom top 15 pesama na listi.
 
 ```{r}
-top_songs <- data %>%
-  filter(!is.na(Stream)) %>%
-  arrange(desc(Stream)) %>%
-  select(Track, Artist, Stream, Views) %>%
-  slice_head(n = 15)
+top_songs = data %>% filter(!is.na(Stream)) %>% arrange(desc(Stream)) %>% select(Track, Artist, Stream, Views) %>% slice_head(n = 15)
 
 top_songs
 ```
@@ -283,7 +278,7 @@ Vrednosti Views u top 15 pesama generalno prate visok Stream, uz izuzetak jedne 
 Kako bismo lakše pregledali karakteristike kolona koje predstavljaju audio karakteristike, pregledaćemo ih kolektivno, jer ove kolone (Danceability, Energy, Loudness, Speechiness, Acousticness, Instrumentalness, Liveness, Valence, Tempo, Duration_ms) predstavljaju numeričke promenljive slične prirode jer opisuju zvučne karakteristike pesme.
 
 ```{r}
-audio_cols <- c("Danceability", "Energy", "Loudness", "Speechiness","Acousticness", "Instrumentalness", "Liveness", "Valence", "Tempo", "Duration_ms")
+audio_cols = c("Danceability", "Energy", "Loudness", "Speechiness","Acousticness", "Instrumentalness", "Liveness", "Valence", "Tempo", "Duration_ms")
 
 data %>%
   select(all_of(audio_cols)) %>%
@@ -320,13 +315,13 @@ data %>%
 
 Kolone Likes i Comments predstavljaju mere reakcije publike na YouTube video spot. Slično kao i kod Views, obe promenljive pokazuju izraženu desnu asimetriju, što znači da mali broj izuzetno popularnih video spotova prikuplja veliki broj lajkova i komentara. Zbog ove osobine, kasnije bi bilo korisno izvršiti logaritamsku transformaciju i ovih kolona.
 
-### Kategorijske promenljive (Album_type, Licensed, official_video)
+### Kategorijske promenljive (Album_type, Licensed, Official_video)
 
 Nakon numeričkih kolona, pregledaćemo kako su organizovane kategorijske promenljive i koliko su zastupljene različite kategorije u njima.
 
 ```{r}
 data %>%
-  select(Licensed, official_video, Album_type) %>%
+  select(Licensed, Official_video, Album_type) %>%
   pivot_longer(everything(), names_to = "variable", values_to = "value") %>%
   ggplot(aes(x = value)) +
   geom_bar(fill = "steelblue") +
@@ -338,7 +333,7 @@ U okviru kategorijskih promenljiva, uočava se određena neravnomerna raspodela 
 
 - **Album_type** - većina pesama objavljena je u okviru albuma, dok je manji broj objavljen kao singl, a najmanji broj pesama je objavljen kao kompilacija.
 - **Licensed** - većina pesama je objavljena na Youtube-u kao licenciran sadržaj.
-- **official_video** - većina pesama ima spot koji je zvaničan.
+- **Official_video** - većina pesama ima spot koji je zvaničan.
 
 ### Izvođač i kanal
 
@@ -377,7 +372,7 @@ data %>%
 S druge strane, distribucija broje pesma je desno asimetrična,verovatno jer neki kanali pripadaju isključivo jednom umetniku, a neki kanali su veći distributeri pa imaju mnogo više objavljenih spotova, što možemo proveriti ukoliko pogledamo top 5 kanala sa najviše pesama.
 
 ```{r}
-top_channels <- data %>%
+top_channels = data %>%
   filter(!is.na(Channel), Channel != "") %>%
   count(Channel) %>%
   arrange(desc(n)) %>%
@@ -393,7 +388,7 @@ ggplot(top_channels, aes(x = fct_reorder(Channel, n), y = n)) +
 Na barplot-u je naša inicijalna tvrdnja i potvrđena, kako su ovi kanali neke veće kompanije, a ne pojedinačni izvođači.
 
 ```{r}
-channel_sizes <- data %>%
+channel_sizes = data %>%
   filter(!is.na(Channel), Channel != "") %>%
   count(Channel)
 
@@ -418,7 +413,7 @@ Kako broj jedinstvenih umetnika prelazi 2000, nije moguće niti korisno direktno
 
 
 ```{r}
-top_artists_stream <- data %>%
+top_artists_stream = data %>%
   group_by(Artist) %>%
   summarise(ukupno_stream = sum(Stream, na.rm = TRUE), .groups = "drop") %>%
   arrange(desc(ukupno_stream)) %>%
@@ -442,13 +437,13 @@ Statistički test je pokazao veliki uticaj na stream, međutim neophodno je izvr
 Kako je u okviru univarijantne analize zaključeno da numeričke promenljive (Stream, Views, Likes, Comments) nisu normalno raspodeljene, koristićemo Spearman koeficijent korelacije, zato što je on otporan na ekstremne vrednosti.
 
 ```{r fig.width=10, fig.height=8}
-numeric_cols <- c("Stream", "Views", "Likes", "Comments", "Danceability", "Energy", "Key",
+numeric_cols = c("Stream", "Views", "Likes", "Comments", "Danceability", "Energy", "Key",
                    "Loudness", "Speechiness", "Acousticness", "Instrumentalness",
                    "Liveness", "Valence", "Tempo", "Duration_ms")
-corr <- cor(data[, numeric_cols], use = "complete.obs", method = "spearman")
+corr = cor(data[, numeric_cols], use = "complete.obs", method = "spearman")
 
-corr[lower.tri(corr)] <- NA
-corr.melt <- melt(corr, na.rm = TRUE)
+corr[lower.tri(corr)] = NA
+corr.melt = melt(corr, na.rm = TRUE)
 
 ggplot(corr.melt, aes(x = Var1, y = Var2, fill = value)) +
   geom_tile(color = "white") +
@@ -460,7 +455,7 @@ ggplot(corr.melt, aes(x = Var1, y = Var2, fill = value)) +
   labs(title = "Heatmap korelacija - Stream i numericke promenljive", x = "", y = "", fill = "Corr")
 ```
 
-Na osnovu matrice korelacija, možemo videti da su promenljive i **Views** i **Likes** i **Comments** u umereno jakoj korelaciji sa stream-om.  Ono što je zajedničko za ove tri promenljive je da sve predstavljaju neku meru popularnosti na Youtube-u, tako da je očekivano da ove promenljive budu povezane. Ono što je bitno primetiti za ove 3 promenljive jeste izuzetno jaka multikolinearnost, jer sve tri kolone imaju koeficijent korelacije veći od 0.9 međusobno, što znači da ćemo prilikom kreiranja modela morati da rešimo ovaj problem odabirom određenih kolona koje ćemo koristiti za predikciju. 
+Na osnovu matrice korelacija, možemo videti da su promenljive i **Views** i **Likes** i **Comments** u umereno jakoj korelaciji sa stream-om. Ono što je zajedničko za ove tri promenljive je da sve predstavljaju neku meru popularnosti na Youtube-u, imaju koeficijent korelacije veći od 0.9 međusobno, što znači da ćemo prilikom kreiranja modela morati da rešimo ovaj problem odabirom određenih kolona koje ćemo koristiti za predikciju. 
 
 Audio karakteristike su znatno slabije korelisane sa Stream-om, pri čemu nijedna od kolona koja pripada ovoj kategoriji ne prelazi vrednost od 0.14, što bi značilo da to kako pesma zvuči ima mali uticaj na njenu popularnost. Da bi se vrednost ovih promenljivih ipak nekako iskoristila, možemo isprobati feature engineering i kreiranje neke kombinacije i kategorizacije ovih kolona kako bi se eventualno postigla veća korelacija.
 
@@ -510,10 +505,10 @@ Kruskal-Wallis test pokazuje statistički značajnu razliku u broju stream-ova i
 
 ### Licensed
 
-Pre nego što pređemo na analizu, važno je napomenuti da su **Licensed** i **official_video** promenljive koje opisuju YouTube video, a ne pesmu na Spotify-u. Uprkos tome, vredi analizirati ove kolone u odnosu na stream, kako se može dogoditi da će se status videa na jednoj platformi na neki način odraziti na drugu platformu, na primer zbog veće vidljivosti videa jer je oficijelan.
+Pre nego što pređemo na analizu, važno je napomenuti da su **Licensed** i **Official_video** promenljive koje opisuju YouTube video, a ne pesmu na Spotify-u. Uprkos tome, vredi analizirati ove kolone u odnosu na stream, kako se može dogoditi da će se status videa na jednoj platformi na neki način odraziti na drugu platformu, na primer zbog veće vidljivosti videa jer je oficijelan.
 
 ```{r}
-data_licensed <- data %>% filter(Licensed != "")
+data_licensed = data %>% filter(Licensed != "")
 
 data_licensed %>%
   group_by(Licensed) %>%
@@ -556,13 +551,13 @@ wilcox_effsize(Stream ~ Licensed, data = data_licensed)
 
 Mann-Whitney test pokazuje statistički značajnu razliku između grupa, dok effect size prema rstatix klasifikaciji spada u kategoriju **malog** (*small*) efekta. Ovo dodatno potvrđuje da, iako licenciran sadržaj u proseku ima nešto veći broj stream-ova, ta veza je praktično slaba i Licensed status verovatno neće biti naročito koristan prediktor za Stream.
 
-### official_video
+### Official_video
 
 ```{r}
-data_video <- data %>% filter(official_video != "")
+data_video = data %>% filter(Official_video != "")
 
 data_video %>%
-  group_by(official_video) %>%
+  group_by(Official_video) %>%
   summarise(
     Count = n(),
     Mean_Stream = mean(Stream, na.rm = TRUE),
@@ -576,27 +571,27 @@ data_video %>%
 Pesme sa zvaničnim video spotom imaju veću medijalnu vrednost broja stream-ova u odnosu na one bez njega.
 
 ```{r}
-ggplot(data_video, aes(x = official_video, y = log1p(Stream), fill = official_video)) +
+ggplot(data_video, aes(x = Official_video, y = log1p(Stream), fill = Official_video)) +
   geom_violin(trim = FALSE, alpha = 0.8) +
   geom_boxplot(width = 0.1, outlier.shape = NA, alpha = 0.3) +
   theme_minimal() +
-  labs(title = "Distribucija Stream-a po official_video (log skala)", x = "official_video", y = "log(Stream + 1)")
+  labs(title = "Distribucija Stream-a po Official_video (log skala)", x = "Official_video", y = "log(Stream + 1)")
 ```
 
 Violin plot pokazuje razdvojenost grupa koja je vizuelno umerena, nema neke preterane vizuelne razlike.
 
 ```{r}
 set.seed(123)
-shapiro_boot(data_video, "official_video", "Stream")
+shapiro_boot(data_video, "Official_video", "Stream")
 ```
 
 Rezultati bootstrap Shapiro-Wilk testa potvrđuju da Stream nema normalnu raspodelu ni u jednoj kategoriji, pa ćemo koristiti neparametarski test.
 
 ```{r}
-wilcox.test(Stream ~ official_video, data = data_video)
+wilcox.test(Stream ~ Official_video, data = data_video)
 ```
 ```{r}
-wilcox_effsize(Stream ~ official_video, data = data_video)
+wilcox_effsize(Stream ~ Official_video, data = data_video)
 ```
 
 Mann-Whitney test pokazuje statistički značajnu razliku između grupa, ali rstatix klasifikacija nam pokazuje da je efekat mali (*small*).
@@ -611,7 +606,7 @@ Nakon bivarijatne analize možemo da zaključimo koje kolone mogu biti korisni p
 
 **Audio karakteristike.** Nijedna audio karakteristika ne prelazi korelaciju od |0.14| sa Stream-om, što ukazuje da to kako pesma zvuči ima slab uticaj na njenu popularnost, odnosno da je komercijalni uspeh pesme verovatno pretežno određen faktorima izvan produkcije. 
 
-**Kategorijske promenljive.** Album_type, Licensed i official_video pokazuju statistički značajne, ali praktično male razlike u broju stream-ova.
+**Kategorijske promenljive.** Album_type, Licensed i Official_video pokazuju statistički značajne, ali praktično male razlike u broju stream-ova.
 
 Od svih razmatranih promenljivih, mere popularnosti sa YouTube-a i identitet izvođača pokazuju najizraženiju vezu sa brojem stream-ova, dok audio karakteristike i kategorijske promenljive vezane za YouTube video imaju manji uticaj.
 
@@ -621,14 +616,14 @@ Od svih razmatranih promenljivih, mere popularnosti sa YouTube-a i identitet izv
 Cilj ove sekcije je da ispitamo odnos između promenljive **Views** i ostalih promenljivih u skupu podataka, kako bismo utvrdili koji atributi imaju potencijal da budu značajni prediktori, i kako bismo ovu analizu mogli da uporedimo sa bivarijantnom analizom nad Stream-om iz prethodnog dela. Analizu sprovodimo u tri dela:
 
 - Views naspram numeričkih promenljivih (audio karakteristike, Duration_ms, Likes, Comments, Stream)
-- Views naspram kategorijskih promenljivih (Album_type, Licensed, official_video, Artist, Channel)
+- Views naspram kategorijskih promenljivih (Album_type, Licensed, Official_video, Artist, Channel)
 
 ### Artist
 
 Kao i kod Stream-a, prvo proveravamo da li izvođač ima sistematski uticaj na broj pregleda, pri čemu već znamo da jedinstvenih izvođača u skupu ima preko 2000.
 
 ```{r}
-top_artists_views <- data %>%
+top_artists_views = data %>%
   group_by(Artist) %>%
   summarise(ukupno_views = sum(Views, na.rm = TRUE), .groups = "drop") %>%
   arrange(desc(ukupno_views)) %>%
@@ -641,6 +636,7 @@ ggplot(top_artists_views, aes(x = fct_reorder(Artist, ukupno_views), y = ukupno_
   theme_minimal(base_size = 13) +
   labs(title = "Top 10 izvođača po ukupnom broju pregleda", x = "Izvođač", y = "Ukupno pregleda")
 ```
+
 Top 10 lista uglavnom sadrži poznate izvođače što je očekivano, s tim što se izdvaja CoComelon, jer nije klasičan muzički izvođač, nego dečji kanal, ali to ima smisla jer deca generalno gledaju isti video više puta, i neke dečje pesme imaju najviše pregleda na Youtube-u.
 
 ```{r}
@@ -664,7 +660,7 @@ data %>%
  U skupu ima više kanala nego izvođača, preko 6000.
  
 ```{r}
-top_channels_views <- data %>%
+top_channels_views = data %>%
   filter(!is.na(Channel), Channel != "") %>%
   group_by(Channel) %>%
   summarise(ukupno_views = sum(Views, na.rm = TRUE), broj_pesama = n(), .groups = "drop") %>%
@@ -678,10 +674,11 @@ ggplot(top_channels_views, aes(x = fct_reorder(Channel, ukupno_views), y = ukupn
   theme_minimal(base_size = 13) +
   labs(title = "Top 10 kanala po ukupnom broju pregleda", x = "Kanal", y = "Ukupno pregleda")
 ```
+
  T-Series dominira po ukupnom broju pregleda i ima ih duplo više od drugog na listi, što ima smisla jer je T-Series ogroman bolivudski kanal, jedan od najgledanijih kanala na YouTube-u uopšte. Ostatak liste sadrži kanale vezane za pojedinačne izvođače i  Cocomelon.
  
 ```{r}
-data_channel <- data %>% filter(!is.na(Channel), Channel != "")
+data_channel = data %>% filter(!is.na(Channel), Channel != "")
 kruskal.test(Views ~ factor(Channel), data = data_channel)
 ```
 ```{r}
@@ -695,13 +692,13 @@ Effect size za Channel je veći nego za Artist, ali sa preko 6000 grupa i prose�
 Koristimo Spearman koeficijent korelacije umesto Pearson-ovog, obzirom na to da smo u univarijantnoj analizi utvrdili da numeričke promenljive nisu normalno raspodeljene, a Spearman je otporan na ekstremne vrednosti.
 
 ```{r fig.width=10, fig.height=8}
-numeric_cols <- c("Views", "Danceability", "Energy", "Key", "Loudness",
+numeric_cols = c("Views", "Danceability", "Energy", "Key", "Loudness",
                    "Speechiness", "Acousticness", "Instrumentalness",
                    "Liveness", "Valence", "Tempo", "Duration_ms",
                    "Likes", "Comments", "Stream")
 
-corr <- cor(data[, numeric_cols], use = "complete.obs", method = "spearman")
-corr.melt <- melt(corr)
+corr = cor(data[, numeric_cols], use = "complete.obs", method = "spearman")
+corr.melt = melt(corr)
 
 ggplot(corr.melt, aes(x = Var1, y = Var2, fill = value)) +
   geom_tile(color = "white") +
@@ -721,7 +718,7 @@ Analizom heatmape uočavamo da su ubedljivo najjače povezane promenljive sa Vie
 
 Sa druge strane, audio karakteristike pesme pokazuju samo slabe veze sa brojem pregleda: najizraženije su **Loudness* i **Duration_ms** , dok su **Energy**, **Danceability** i **Valence** ispod 0.15, a **Instrumentalness** i **Acousticness** pokazuju blagu negativnu vezu. Ovo sugeriše da same zvučne karakteristike pesme imaju veoma ograničen uticaj na broj pregleda, popularnost videa verovatno je više određena faktorima koji nisu direktno obuhvaćeni audio atributima. Korelacija sa **Key** je zanemarljiva, što je i očekivano jer Key predstavlja nominalnu (kategorijsku) promenljivu kodiranu brojevima, pa ovakav oblik poređenja sa njom suštinski nema smisla.
 
-Važno je napomenuti da **Likes, Comments i Stream** treba oprezno koristiti kao prediktore ukoliko Views postane ciljna promenljiva, reč je o varijablama koje se prikupljaju u istom trenutku i istom kontekstu kao i sam broj pregleda, a ne o karakteristikama poznatim unapred, pa postoji rizik od curenja podataka.
+Važno je napomenuti da **Likes, Comments i Stream** bi trebalo oprezno koristiti kao prediktore ukoliko Views postane ciljna promenljiva, reč je o varijablama koje se prikupljaju u istom trenutku i istom kontekstu kao i sam broj pregleda, a ne o karakteristikama poznatim unapred, pa postoji rizik od curenja podataka.
 
 ```{r}
 data %>%
@@ -796,7 +793,7 @@ Pretpostavka je da je licenciran sadržaj verovatno zvanično distribuiran od st
 Kolona Licensed sadrži, pored True i False, prazan string `""` , što us verovatno opservacije kod kojih nedostaju i ostali YouTube podaci). Kako Mann-Whitney test zahteva tačno dve grupe, za potrebe ove analize ih izbacujemo.
 
 ```{r}
-data_licensed <- data %>% filter(Licensed != "")
+data_licensed = data %>% filter(Licensed != "")
 
 data_licensed %>%
   group_by(Licensed) %>%
@@ -839,19 +836,19 @@ wilcox_effsize(Views ~ Licensed, data = data_licensed)
 
 Mann-Whitney test pokazuje i statističku i praktičnu značajnost, effect size spada u kategoriju umerene (*moderate*) razlike. Ovo potvrđuje da je Licensed relevantna promenljiva, jer pesme koje su licencirane imaju znatno veći broj pregleda od onih koje nisu, i ova razlika nije samo posledica velikog uzorka, već predstavlja stvarnu, praktično uočljivu razliku. Licensed bi mogao biti koristan prediktor za Views.
 
-#### official_video
+#### Official_video
 
 Postoji mogućnost da pesme sa zvaničnim video spotom su vizuelno bolje i više promovisane (u odnosu na lyrics video ili generičku sliku), pa bismo očekivali veći broj pregleda.
 
 I ovde izbacujemo prazan string iz analize, jer Mann-Whitney test očekuje 2 kategorije.
 
 ```{r}
-data_video <- data %>% filter(official_video != "")
+data_video = data %>% filter(Official_video != "")
 ```
 
 ```{r}
 data_video %>%
-  group_by(official_video) %>%
+  group_by(Official_video) %>%
   summarise(
     Count = n(),
     Mean_Views = mean(Views, na.rm = TRUE),
@@ -865,41 +862,41 @@ data_video %>%
 Pesme sa zvaničnim spotom imaju medijalnu vrednost skoro 13 puta veću medijanu za Views.
 
 ```{r}
-ggplot(data_video, aes(x = official_video, y = log1p(Views), fill = official_video)) +
+ggplot(data_video, aes(x = Official_video, y = log1p(Views), fill = Official_video)) +
   geom_violin(trim = FALSE, alpha = 0.8) +
   geom_boxplot(width = 0.1, outlier.shape = NA, alpha = 0.3) +
   theme_minimal() +
-  labs(title = "Distribucija Views po official_video (log skala)", x = "official_video", y = "log(Views + 1)")
+  labs(title = "Distribucija Views po Official_video (log skala)", x = "Official_video", y = "log(Views + 1)")
 ```
 
-Violin plot potvrđuje vizuelno ono što smo videli u opisnoj statistici, istribucija za official_video = True je jasno pomerena na više vrednosti u odnosu na False, uz nešto užu i koncentrisaniju raspodelu kod True. 
+Violin plot potvrđuje vizuelno ono što smo videli u opisnoj statistici, istribucija za Official_video = True je jasno pomerena na više vrednosti u odnosu na False, uz nešto užu i koncentrisaniju raspodelu kod True. 
 
-Iako je malo verovatno da je Views normalno raspodeljena unutar bilo koje kategorije official_video, proverićemo to formalno Shapiro-Wilk testom sa bootstrap pristupom.
+Iako je malo verovatno da je Views normalno raspodeljena unutar bilo koje kategorije Official_video, proverićemo to formalno Shapiro-Wilk testom sa bootstrap pristupom.
 
 ```{r}
 set.seed(123)
-shapiro_boot(data_video, "official_video", "Views")
+shapiro_boot(data_video, "Official_video", "Views")
 ```
 
-Kao što smo i pretpostavili, Views nema normalnu raspodelu ni u jednoj od dve kategorije official_video (True, False), što opravdava korišćenje Mann-Whitney U testa.
+Kao što smo i pretpostavili, Views nema normalnu raspodelu ni u jednoj od dve kategorije Official_video (True, False), što opravdava korišćenje Mann-Whitney U testa.
 
 ```{r}
-wilcox.test(Views ~ official_video, data = data_video)
+wilcox.test(Views ~ Official_video, data = data_video)
 ```
 
 ```{r}
-wilcox_effsize(Views ~ official_video, data = data_video)
+wilcox_effsize(Views ~ Official_video, data = data_video)
 ```
 
-Mann-Whitney test potvrđuje statistički veoma značajnu razliku, a effect size takođe spada u kategoriju umerene razlike. Ovo potvrđuje da official_video ima određenu značajnost, pesme sa zvaničnim video spotom imaju značajno veći broj pregleda.
+Mann-Whitney test potvrđuje statistički veoma značajnu razliku, a effect size takođe spada u kategoriju umerene razlike. Ovo potvrđuje da Official_video ima određenu značajnost, pesme sa zvaničnim video spotom imaju značajno veći broj pregleda.
 
 #### Zaključak - kategorijske promenljive
 
 - **Channel** i **Artist** imaju značajan uticaj na Views, s tim što će nam biti neophodne određene transformacije da bismo mogli da probamo da iskoristimo ove kolone kao prediktore, pored toga što se sastoje iz velikih grupa.
 - **Album_type** pokazuje statistički značajnu, ali praktično zanemarljivu razliku, verovatno neće biti koristan prediktor za Views.
-- **Licensed** i **official_video** pokazuju umerenu praktičnu značajnost, što ih čini potencijalno korisnim prediktorima za Views.
+- **Licensed** i **Official_video** pokazuju umerenu praktičnu značajnost, što ih čini potencijalno korisnim prediktorima za Views.
 
-Zanimljivo je što Licensed i official_video imaju gotovo identičnu jačinu efekta - ovo je moguće zato što su međusobno povezane promenljive (pesme sa zvaničnim video spotom su verovatno i češće licencirane). Ovu vezu bi vredelo proveriti u nekom od narednih koraka, jer bi mogla ukazivati na redundantnost (obe promenljive nose sličnu informaciju) koju treba uzeti u obzir prilikom odabira prediktora za model.
+Zanimljivo je što Licensed i Official_video imaju gotovo identičnu jačinu efekta - ovo je moguće zato što su međusobno povezane promenljive (pesme sa zvaničnim video spotom su verovatno i češće licencirane). Ovu vezu bi vredelo proveriti u nekom od narednih koraka, jer bi mogla ukazivati na redundantnost (obe promenljive nose sličnu informaciju) koju treba uzeti u obzir prilikom odabira prediktora za model.
 
 ### Views naspram Stream
 
@@ -931,7 +928,7 @@ Formalni test potvrđuje umerenu do jaku pozitivnu korelaciju, u skladu sa vredn
 ### Ukupan zaključak bivarijantne analize nad kolonom Views
 
 - **Numeričke promenljive**: Likes i Comments su najjače povezane sa Views, ali predstavljaju potencijalni rizik od data leakage-a jer se mere istovremeno sa samim pregledima, audio karakteristike pokazuju samo slabe veze, stream pokazuje umerenu vezu.
-- **Kategorijske promenljive**: Album_type nema praktičnog značaja, dok Licensed i official_video  pokazuju umerenu praktičnu značajnost i mogu biti korisni prediktori, a Artist i Channel mogu eventualno biti uz transformacije.
+- **Kategorijske promenljive**: Album_type nema praktičnog značaja, dok Licensed i Official_video  pokazuju umerenu praktičnu značajnost i mogu biti korisni prediktori, a Artist i Channel mogu eventualno biti uz transformacije.
 - **Views vs Stream**: umereno do jako korelisani, ali ne identični, svaka promenljiva nosi deo jedinstvene informacije, a Views je neznatno kompletnija varijabla (manje NA vrednosti).
 
 
@@ -941,7 +938,7 @@ Nakon univarijantne i bivarijantnih analiza, možemo da donesemo utemeljenu odlu
 
 Obe promenljive dele iste osnovne osobine, što su izrazito desno asimetrična raspodela koja zahteva logaritamsku transformaciju i međusobno su umereno do jako korelisane. 
 
-Ono što je presudno u donošenju odluke jeste kako izgleda prostor mogućih prediktora za moguće ciljne promenljive. Kod Views-a, dva ubedljivo najjača kandidata su Likes i Comments, koje u suštini mere istu stvar kao i sam Views. Isti problem, samo blaži, važi i za Licensed i official_video, jer njihov efekat na Views je umeren i jači nego kod Stream-a, ali to nije stvarna prednost, jer obe promenljive opisuju status istog tog YouTube videa čiji broj pregleda pokušavamo da objasnimo, ne pesmu kao takvu. Kad se izuzmu ove tri kolone, ono što preostaje za Views je prilično tanko, i ne izdvaja se znatno u odnosu na streamove.
+Ono što je presudno u donošenju odluke jeste kako izgleda prostor mogućih prediktora za moguće ciljne promenljive. Kod Views-a, dva ubedljivo najjača kandidata su Likes i Comments, koje u suštini mere istu stvar kao i sam Views. Isti problem, samo blaži, važi i za Licensed i Official_video, jer njihov efekat na Views je umeren i jači nego kod Stream-a, ali to nije stvarna prednost, jer obe promenljive opisuju status istog tog YouTube videa čiji broj pregleda pokušavamo da objasnimo, ne pesmu kao takvu. Kad se izuzmu ove tri kolone, ono što preostaje za Views je prilično tanko, i ne izdvaja se znatno u odnosu na streamove.
 
 Kod Stream-a je situacija drugačija upravo zato što je Artist jače korelisan sa Stream-om nego sa Views-om. To nam otvara pitanje koje kod Views-a suštinski ne postoji, koliko YouTube osobine podataka dodaju objašnjenju Stream-a preko onoga što već nose audio karakteristike i identitet izvođača? Koliko Spotify strana dodaje objašnjenju Views-a, nema smisla postaviti na isti način, jer je Views već skoro u potpunosti zavistan unutar sopstvene platforme. Audio karakteristike su slabo povezane i sa Stream-om, ali to svakako ne menja situaciju u poređenju sa Views-om.
 
@@ -1087,9 +1084,8 @@ Sve audio karakteristike su u očekivanom opsegu.
 
 Da bismo uspešno kreirali modele, neophodno je i da rešimo problem nedostajućih vrednosti iz skupa, njihovim uklanjanjem ili imputacijom. Prvo ćemo proveriti koje kolone sadrže nedostajuće vrednosti.
 
-
 ```{r}
-na_summary <- data %>%
+na_summary = data %>%
   summarise(across(everything(), ~ sum(is.na(.)))) %>%
   pivot_longer(cols = everything(), names_to = "Kolona", values_to = "Broj_NA") %>%
   filter(Broj_NA > 0) %>%
@@ -1121,7 +1117,7 @@ data %>%
 Određene kolone vezane za Youtube kanal imaju prazan string u svojim vrednostima, što već sad možemo da povežemo sa tim da su to pesme koje jednostavno nemaju spot na Youtube-u. Da bismo kasnije lakše baratali ovih vrednostima, postavićemo NA vrednosti umesto praznog stringa.
 
 ```{r}
-data <- data %>%
+data = data %>%
   mutate(across(
     where(~ is.character(.) || is.factor(.)),
     ~ ifelse(trimws(as.character(.)) == "", NA, as.character(.))
@@ -1146,7 +1142,7 @@ data %>%
 Ono što možemo da primetimo je da postoje dve pesme kojima nedostaju sve audio karakteristike, ali jednoj od tih pesama su popunjene kolone Stream i Views, dok je drugoj popunjena samo kolona Stream. Kako u ovom slučaju, ove dve pesme imaju mnogo nedostajućih vrednosti, možemo da zaključimo da je nedostatak ove vrednosti verovatno nastao zbog prekida prilikom dohvatanja podataka, a ne izazvan nečim drugim, kao na primer da za neku pesme nije merljiv Danceability, pa možemo da zaključimo da su ovo MCAR nedostajuće vrednosti. Pored toga, kako su u pitanju samo 2 reda, možemo da ih obrišemo, a da to ne utiče mnogo na naš dalji rad.
 
 ```{r}
-data <- data %>% filter(!is.na(Danceability))
+data = data %>% filter(!is.na(Danceability))
 
 data %>%
   filter(
@@ -1160,12 +1156,11 @@ data %>%
 Nakon brisanja, ne postoje više kolone sa ovim problemima, pa možemo nastaviti dalje sa rešavanjem nedostajućih vrednosti.
 
 ```{r}
-na_summary <- data %>%
+na_summary = data %>%
   summarise(across(everything(), ~sum(is.na(.)))) %>%
   pivot_longer(cols = everything(), names_to = "kolona", values_to = "broj_NA") %>%
   filter(broj_NA > 0) %>%
   arrange(desc(broj_NA))
-
 
 na_summary
 ```
@@ -1177,9 +1172,9 @@ Da bismo shvatili uzrok ovih nedostajućih vrednosti, proverićemo preklapanja, 
 
 
 ```{r}
-yt_cols <- c("Views", "Likes", "Comments", "Url_youtube", 
+yt_cols = c("Views", "Likes", "Comments", "Url_youtube", 
                "Title", "Channel", "Description", 
-               "Licensed", "official_video")
+               "Licensed", "Official_video")
 
 data %>% filter(if_all(all_of(yt_cols), is.na)) %>% nrow()
 ```
@@ -1190,10 +1185,10 @@ Obzirom da su ovo podaci čija se prediktivna moć kasnije može koristiti, a ne
 
 
 ```{r}
-data <- data %>%
+data = data %>%
   mutate(has_youtube = ifelse(is.na(Views), FALSE, TRUE))
 
-data <- data %>%
+data = data %>%
   mutate(
     Views = ifelse(!has_youtube, 0, Views),
     Likes = ifelse(!has_youtube, 0, Likes),
@@ -1203,7 +1198,7 @@ data <- data %>%
     Channel = ifelse(!has_youtube, "Unknown", Channel),
     Description = ifelse(!has_youtube & is.na(Description), "No Description", Description),
     Licensed = ifelse(!has_youtube, "Unknown", as.character(Licensed)),
-    official_video = ifelse(!has_youtube, "Unknown", as.character(official_video))
+    Official_video = ifelse(!has_youtube, "Unknown", as.character(Official_video))
   )
 
 data %>%
@@ -1215,26 +1210,25 @@ data %>%
 
 ### Description
 
-Za opis videa ćemo samo popuniti NA vrednosti sa No Description indikatorom, kako svakako neće biti isuviše relevatna za kasnije predikcije.
+Za opis videa ćemo samo popuniti NA vrednosti sa No Description indikatorom, kako svakako neće biti relevatna za kasnije kreiranje modela.
 
 ```{r}
-data <- data %>%
+data = data %>%
   mutate(Description = ifelse(is.na(Description), "No Description", Description))
 ```
 
 ### Podela na trening i test skup
 
-Pre nego što nastavimo sa popunjavanjem preostalih nedostajućih vrednosti (Likes, Comments, Stream) i sa feature engineering-om (posebno Artist_LOO_stream), moramo prvo da podelimo podatke na trening i test skup. Razlog za ovo je sprečavanje **data leakage-a** (curenja podataka): koraci koji slede računaju statistike (medijane, regresione modele) preko grupa redova - po izvođaču, po opsegu Views-a - a ako bismo te statistike računali na celom skupu pre podele, test skup bi delimično "video" informaciju o samom sebi kroz te statistike, čak i kada nijedan pojedinačni red direktno ne koristi sopstvenu vrednost. Konkretno, ako bi se npr. medijana Stream-a po izvođaču računala na celom skupu, a zatim se ta ista podela slala i u trening i u test, test pesme bi uticale na vrednost feature-a koji se koristi za predikciju trening pesama (i obrnuto), što bi dalo veštački optimistične metrike modela.
+Pre nego što nastavimo sa popunjavanjem preostalih nedostajućih vrednosti i sa feature engineering-om, moramo prvo da podelimo podatke na trening i test skup. Razlog za ovo je sprečavanje curenja podataka, kako koraci koji slede računaju statistike preko grupa redova, odnosno po izvođaču, po opsegu Views-a i ako bismo te statistike računali na celom skupu pre podele, test skup bi delimično imao informaciju o samom sebi kroz ove statistike.
 
-Zbog toga podelu radimo ovde, odmah nakon strukturnog čišćenja (has_youtube indikator, popunjavanje praznih YouTube kolona, Description), a pre bilo kakve imputacije ili enkodiranja koje computes statistiku preko više redova. Od ovog trenutka, svaka takva statistika će se **fitovati isključivo na trening skupu**, a zatim primeniti (mapirati) i na trening i na test skup - test skup nikada neće uticati na vrednost bilo kog feature-a, čak ni indirektno.
 
 ```{r}
 set.seed(123)
-n <- nrow(data)
-train_idx <- sample(seq_len(n), size = floor(0.8 * n))
+n = nrow(data)
+train_idx = sample(seq_len(n), size = floor(0.8 * n))
 
-train <- data[train_idx, ]
-test <- data[-train_idx, ]
+train = data[train_idx, ]
+test = data[-train_idx, ]
 
 nrow(train)
 nrow(test)
@@ -1242,7 +1236,7 @@ nrow(test)
 
 ### Likes i Comments
 
-Da bismo popunili vrednost za likes i comments, prvo ćemo proveriti da li se ove nedostajuće vrednosti mahom javljaju na istim videima ili ne. Ovu i sve naredne provere radimo isključivo nad trening skupom.
+Da bismo popunili vrednost za Likes i Comments, prvo ćemo proveriti da li se ove nedostajuće vrednosti mahom javljaju na istim videima ili ne. Ovu i sve naredne provere radimo isključivo nad trening skupom.
 
 ```{r}
 train %>% filter(has_youtube) %>%
@@ -1253,45 +1247,45 @@ train %>% filter(has_youtube) %>%
   )
 ```
 
-Ove nedostajuće vrednosti se više javljaju na različitih yt videima, što se može desiti iz više razloga. Na primer, na Youtube videu kreator ima opciju da ne dozvoli da se komentari postavljaju, ili da sakrije broj lajkova za video, međutim, mi u ovom slučaju nemamo mogućnost da izvršimo proveru da li su komentari isključeni ili podaci jednostavno samo nisu prikupljeni. Ovo nije isti slučaj kao kod pesama koje nemaju Youtube video, kako smo tamo jasno iz nepostojanja URL-a i ostalih kolona mogli da zaključimo i nepostojanje Youtube videa, za šta ovde nemamo mogućnost. Pored toga, karakteristično je za videe sa puno pregleda da imaju puno komentara i pregleda, tako da ćemo popunjavanje ovih vrednosti izvršiti procenom vrednosti.
+Ove nedostajuće vrednosti se više javljaju na različitim yt videima, što se može desiti iz više razloga. Na primer, na Youtube videu kreator ima opciju da ne dozvoli da se komentari postavljaju, ili da sakrije broj lajkova za video, međutim, mi u ovom slučaju nemamo mogućnost da izvršimo proveru da li su komentari isključeni ili podaci jednostavno samo nisu prikupljeni. Ovo nije isti slučaj kao kod pesama koje nemaju Youtube video, kako smo tamo jasno iz nepostojanja URL-a i ostalih kolona mogli da zaključimo i nepostojanje Youtube videa, za šta ovde nemamo mogućnost. Pored toga, karakteristično je za videe sa puno pregleda da imaju puno komentara i lajkova, tako da ćemo popunjavanje ovih vrednosti izvršiti procenom vrednosti.
 
-Umesto da unapred pretpostavimo koja metoda imputacije daje najtačnije rezultate, uzećemo da testiramo koja je metoda najbolja, tako što ćemo na delu **trening** podataka gde je prava vrednost poznata, vrednost sakriti, a zatim ćemo primeniti svaku metodu koja dolazi u obzir za predviđanje te vrednosti, a na kraju ćemo meriti grešku uz pomoć metrike MAE (Mean Absolute Error) u odnosu na pravu vrednost. Testiraćemo četiri kandidata - medijanu po grupama po Views-u, globalnu medijanu, linearnu regresiju na logaritamskoj transformaciji Views, i medijanu po izvođaču.
+Umesto da unapred pretpostavimo koja metoda imputacije daje najtačnije rezultate, uzećemo da testiramo koja je metoda najbolja, tako što ćemo na delu trening podataka gde je prava vrednost poznata, vrednost sakriti, a zatim ćemo primeniti svaku metodu koja dolazi u obzir za predviđanje te vrednosti, a na kraju ćemo meriti grešku uz pomoć metrike MAE (Mean Absolute Error) u odnosu na pravu vrednost. Testiraćemo četiri kandidata - medijanu po grupama po Views-u, globalnu medijanu, linearnu regresiju na logaritamskoj transformaciji Views, i medijanu po izvođaču.
 
 ```{r}
-uporedi_metode_imputacije <- function(data, target_col, seed = 123) {
+uporedi_metode_imputacije = function(data, target_col, seed = 123) {
   set.seed(seed)
 
-  poznato <- data %>% filter(has_youtube, !is.na(.data[[target_col]]))
-  n_test <- floor(0.2 * nrow(poznato))
-  test_idx <- sample(seq_len(nrow(poznato)), n_test)
+  poznato = data %>% filter(has_youtube, !is.na(.data[[target_col]]))
+  n_test = floor(0.2 * nrow(poznato))
+  test_idx = sample(seq_len(nrow(poznato)), n_test)
 
-  train_i <- poznato[-test_idx, ]
-  test_i <- poznato[test_idx, ]
-  actual <- test_i[[target_col]]
+  train_i = poznato[-test_idx, ]
+  test_i = poznato[test_idx, ]
+  actual = test_i[[target_col]]
 
-  granice <- quantile(train_i$Views, probs = seq(0, 1, length.out = 11), na.rm = TRUE)
-  granice <- unique(granice)
-  granice[1] <- -Inf
-  granice[length(granice)] <- Inf
-  medijane_grupa <- train_i %>%
+  granice = quantile(train_i$Views, probs = seq(0, 1, length.out = 11), na.rm = TRUE)
+  granice = unique(granice)
+  granice[1] = -Inf
+  granice[length(granice)] = Inf
+  medijane_grupa = train_i %>%
     mutate(grupa = cut(Views, breaks = granice, labels = FALSE, include.lowest = TRUE)) %>%
     group_by(grupa) %>%
     summarise(medijana = median(.data[[target_col]]))
-  pred_decile <- test_i %>%
+  pred_decile = test_i %>%
     mutate(grupa = cut(Views, breaks = granice, labels = FALSE, include.lowest = TRUE)) %>%
     left_join(medijane_grupa, by = "grupa") %>%
     pull(medijana)
 
-  pred_globalna <- rep(median(train_i[[target_col]]), nrow(test_i))
+  pred_globalna = rep(median(train_i[[target_col]]), nrow(test_i))
 
-  formula_reg <- as.formula(paste0("log1p(", target_col, ") ~ log1p(Views)"))
-  model_reg <- lm(formula_reg, data = train_i)
-  pred_regresija <- expm1(predict(model_reg, newdata = test_i))
+  formula_reg = as.formula(paste0("log1p(", target_col, ") ~ log1p(Views)"))
+  model_reg = lm(formula_reg, data = train_i)
+  pred_regresija = expm1(predict(model_reg, newdata = test_i))
 
-  medijana_izvodjac <- train_i %>%
+  medijana_izvodjac = train_i %>%
     group_by(Artist) %>%
     summarise(med_art = median(.data[[target_col]]))
-  pred_artist <- test_i %>%
+  pred_artist = test_i %>%
     left_join(medijana_izvodjac, by = "Artist") %>%
     mutate(pred = ifelse(is.na(med_art), median(train_i[[target_col]]), med_art)) %>%
     pull(pred)
@@ -1313,30 +1307,31 @@ uporedi_metode_imputacije(train, "Likes")
 ```{r}
 uporedi_metode_imputacije(train, "Comments")
 ```
-Za obe kolone kao najbolja metoda pokazala se regresija na osnovu views, tako da ćemo koristiti tu metodu. Sada je bitno da model **fitujemo samo na trening skupu**, a zatim isti (zamrznuti) model primenimo i na trening i na test skup - test skup ni u jednom trenutku ne učestvuje u određivanju koeficijenata regresije.
+
+Za obe kolone kao najbolja metoda pokazala se regresija na osnovu views, tako da ćemo koristiti tu metodu. Sada je bitno da model treniramo samo na trening skupu, a zatim isti model primenimo i na trening i na test skup, kako test skup ni u jednom trenutku ne bi učestovao u određivanju koeficijenata regresije.
 
 ```{r}
-fit_likes_comments_model <- function(train_data, target_col) {
-  poznato <- train_data %>% filter(has_youtube, !is.na(.data[[target_col]]))
-  formula_reg <- as.formula(paste0("log1p(", target_col, ") ~ log1p(Views)"))
+fit_likes_comments_model = function(train_data, target_col) {
+  poznato = train_data %>% filter(has_youtube, !is.na(.data[[target_col]]))
+  formula_reg = as.formula(paste0("log1p(", target_col, ") ~ log1p(Views)"))
   lm(formula_reg, data = poznato)
 }
 
-primeni_likes_comments_model <- function(df, model, target_col) {
-  idx <- df$has_youtube & is.na(df[[target_col]])
+primeni_likes_comments_model = function(df, model, target_col) {
+  idx = df$has_youtube & is.na(df[[target_col]])
   if (any(idx)) {
-    df[[target_col]][idx] <- expm1(predict(model, newdata = df[idx, ]))
+    df[[target_col]][idx] = expm1(predict(model, newdata = df[idx, ]))
   }
   df
 }
 
-likes_model <- fit_likes_comments_model(train, "Likes")
-comments_model <- fit_likes_comments_model(train, "Comments")
+likes_model = fit_likes_comments_model(train, "Likes")
+comments_model = fit_likes_comments_model(train, "Comments")
 
-train <- primeni_likes_comments_model(train, likes_model, "Likes")
-train <- primeni_likes_comments_model(train, comments_model, "Comments")
-test <- primeni_likes_comments_model(test, likes_model, "Likes")
-test <- primeni_likes_comments_model(test, comments_model, "Comments")
+train = primeni_likes_comments_model(train, likes_model, "Likes")
+train = primeni_likes_comments_model(train, comments_model, "Comments")
+test = primeni_likes_comments_model(test, likes_model, "Likes")
+test = primeni_likes_comments_model(test, comments_model, "Comments")
 
 train %>% filter(has_youtube) %>% summarise(NA_Likes = sum(is.na(Likes)), NA_Comments = sum(is.na(Comments)))
 test %>% filter(has_youtube) %>% summarise(NA_Likes = sum(is.na(Likes)), NA_Comments = sum(is.na(Comments)))
@@ -1344,41 +1339,41 @@ test %>% filter(has_youtube) %>% summarise(NA_Likes = sum(is.na(Likes)), NA_Comm
 
 ### Stream
 
-Za razliku od Likes i Comments, gde su nedostajuće vrednosti postojale isključivo kod redova sa YouTube videom, Stream je nezavisan od postojanja videa na yt. Kod redova bez videa, Views je ranije postavljen na 0, pa bi korišćenje Views kao prediktora tu bilo besmisleno. Zato možemo opet da uporedimo metode ali da podelimo podatke na grupe onih koje imaju i nemaju yt video - i ovde, sve poredimo iskljucivo na trening skupu, jer je Stream naša ciljna promenljiva, pa je ovde disciplina oko granice trening/test naročito bitna.
+Za razliku od Likes i Comments, gde su nedostajuće vrednosti postojale isključivo kod redova sa YouTube videom, Stream je nezavisan od postojanja videa na yt. Kod redova bez videa, Views je ranije postavljen na 0, pa bi korišćenje Views kao prediktora tu bilo besmisleno. Zato možemo opet da uporedimo metode ali da podelimo podatke na grupe onih koje imaju i nemaju yt video. Pored toga je i dalje bitno da nastavimo da izračunavanja radimo na osnovu trening skupa, kako ne bi došlo do curenja podataka.
 
 ```{r}
-uporedi_metode <- function(poznato, target_col, include_views = FALSE, seed = 123) {
+uporedi_metode = function(poznato, target_col, include_views = FALSE, seed = 123) {
   set.seed(seed)
-  n_test <- floor(0.2 * nrow(poznato))
-  test_idx <- sample(seq_len(nrow(poznato)), n_test)
-  train_i <- poznato[-test_idx, ]
-  test_i  <- poznato[test_idx, ]
-  actual <- test_i[[target_col]]
+  n_test = floor(0.2 * nrow(poznato))
+  test_idx = sample(seq_len(nrow(poznato)), n_test)
+  train_i = poznato[-test_idx, ]
+  test_i  = poznato[test_idx, ]
+  actual = test_i[[target_col]]
 
-  rezultati <- list()
+  rezultati = list()
 
-  rezultati[["Globalna medijana"]] <- rep(median(train_i[[target_col]]), nrow(test_i))
+  rezultati[["Globalna medijana"]] = rep(median(train_i[[target_col]]), nrow(test_i))
 
-  med_art <- train_i %>% group_by(Artist) %>% summarise(m = median(.data[[target_col]]))
-  rezultati[["Medijana po izvođaču"]] <- test_i %>%
+  med_art = train_i %>% group_by(Artist) %>% summarise(m = median(.data[[target_col]]))
+  rezultati[["Medijana po izvođaču"]] = test_i %>%
     left_join(med_art, by = "Artist") %>%
     mutate(p = ifelse(is.na(m), median(train_i[[target_col]]), m)) %>%
     pull(p)
 
   if (include_views) {
-    granice <- quantile(train_i$Views, probs = seq(0, 1, length.out = 11), na.rm = TRUE)
-    granice <- unique(granice)
-    granice[1] <- -Inf
-    granice[length(granice)] <- Inf
-    med_dec <- train_i %>%
+    granice = quantile(train_i$Views, probs = seq(0, 1, length.out = 11), na.rm = TRUE)
+    granice = unique(granice)
+    granice[1] = -Inf
+    granice[length(granice)] = Inf
+    med_dec = train_i %>%
       mutate(grupa = cut(Views, breaks = granice, labels = FALSE, include.lowest = TRUE)) %>%
       group_by(grupa) %>% summarise(m = median(.data[[target_col]]))
-    rezultati[["Medijana po Views"]] <- test_i %>%
+    rezultati[["Medijana po Views"]] = test_i %>%
       mutate(grupa = cut(Views, breaks = granice, labels = FALSE, include.lowest = TRUE)) %>%
       left_join(med_dec, by = "grupa") %>% pull(m)
 
-    model <- lm(as.formula(paste0("log1p(", target_col, ") ~ log1p(Views)")), data = train_i)
-    rezultati[["Regresija na log1p(Views)"]] <- expm1(predict(model, newdata = test_i))
+    model = lm(as.formula(paste0("log1p(", target_col, ") ~ log1p(Views)")), data = train_i)
+    rezultati[["Regresija na log1p(Views)"]] = expm1(predict(model, newdata = test_i))
   }
 
   tibble(
@@ -1387,33 +1382,35 @@ uporedi_metode <- function(poznato, target_col, include_views = FALSE, seed = 12
   ) %>% arrange(MAE_log)
 }
 
-poznato_sa_yt <- train %>% filter(has_youtube, !is.na(Stream))
-rezultati_stream <- uporedi_metode(poznato_sa_yt, "Stream", include_views = TRUE)
+poznato_sa_yt = train %>% filter(has_youtube, !is.na(Stream))
+rezultati_stream = uporedi_metode(poznato_sa_yt, "Stream", include_views = TRUE)
 rezultati_stream
-
-poznato_bez_yt <- train %>% filter(!has_youtube, !is.na(Stream))
-rezultati_stream_bez_yt <- uporedi_metode(poznato_bez_yt, "Stream", include_views = FALSE)
+```
+```{r}
+poznato_bez_yt = train %>% filter(!has_youtube, !is.na(Stream))
+rezultati_stream_bez_yt = uporedi_metode(poznato_bez_yt, "Stream", include_views = FALSE)
 rezultati_stream_bez_yt
 ```
-Za obe vrste podataka, najbolje je koristiti imputaciju na osnovu Artist-a za grupu bez YouTube videa, dok se za grupu sa YouTube videom najbolje pokazala medijana po Views-decilima. Sada svaku od ovih statistika računamo **isključivo na trening skupu**, i tako zamrznutu je primenjujemo i na trening i na test.
+
+Za obe vrste podataka, najbolje je koristiti imputaciju na osnovu Artist-a za grupu bez YouTube videa, dok se za grupu sa YouTube videom najbolje pokazala medijana po Views grupama.
 
 ```{r}
-train_yt <- train %>% filter(has_youtube)
+train_yt = train %>% filter(has_youtube)
 
-granice_views <- quantile(train_yt$Views, probs = seq(0, 1, length.out = 11), na.rm = TRUE)
-granice_views <- unique(granice_views)
-granice_views[1] <- -Inf
-granice_views[length(granice_views)] <- Inf
+granice_views = quantile(train_yt$Views, probs = seq(0, 1, length.out = 11), na.rm = TRUE)
+granice_views = unique(granice_views)
+granice_views[1] = -Inf
+granice_views[length(granice_views)] = Inf
 
-medijane_views_decil <- train_yt %>%
+medijane_views_decil = train_yt %>%
   filter(!is.na(Stream)) %>%
   mutate(Views_grupa = cut(Views, breaks = granice_views, labels = FALSE, include.lowest = TRUE)) %>%
   group_by(Views_grupa) %>%
   summarise(median_stream_views = median(Stream, na.rm = TRUE), .groups = "drop")
 
-globalna_medijana_yt_train <- median(train_yt$Stream, na.rm = TRUE)
+globalna_medijana_yt_train = median(train_yt$Stream, na.rm = TRUE)
 
-impute_stream_yt <- function(df) {
+impute_stream_yt = function(df) {
   df %>%
     mutate(Views_grupa = cut(Views, breaks = granice_views, labels = FALSE, include.lowest = TRUE)) %>%
     left_join(medijane_views_decil, by = "Views_grupa") %>%
@@ -1425,19 +1422,19 @@ impute_stream_yt <- function(df) {
     select(-Views_grupa, -median_stream_views)
 }
 
-train_bez_yt <- train %>% filter(!has_youtube)
+train_bez_yt = train %>% filter(!has_youtube)
 
-artist_median_stream_train <- train_bez_yt %>%
+artist_median_stream_train = train_bez_yt %>%
   filter(!is.na(Stream)) %>%
   group_by(Artist) %>%
   summarise(median_stream_artist = median(Stream), .groups = "drop")
 
-median_stream_bez_yt_train <- train_bez_yt %>%
+median_stream_bez_yt_train = train_bez_yt %>%
   filter(!is.na(Stream)) %>%
   summarise(median = median(Stream)) %>%
   pull(median)
 
-impute_stream_bez_yt <- function(df) {
+impute_stream_bez_yt = function(df) {
   df %>%
     left_join(artist_median_stream_train, by = "Artist") %>%
     mutate(
@@ -1450,15 +1447,15 @@ impute_stream_bez_yt <- function(df) {
     select(-median_stream_artist)
 }
 
-primeni_imputaciju_stream <- function(df) {
+primeni_imputaciju_stream = function(df) {
   bind_rows(
     df %>% filter(has_youtube) %>% impute_stream_yt(),
     df %>% filter(!has_youtube) %>% impute_stream_bez_yt()
   )
 }
 
-train <- primeni_imputaciju_stream(train)
-test <- primeni_imputaciju_stream(test)
+train = primeni_imputaciju_stream(train)
+test = primeni_imputaciju_stream(test)
 
 sum(is.na(train$Stream))
 sum(is.na(test$Stream))
@@ -1487,64 +1484,63 @@ U okviru ovog dela čišćenja podataka, pregledaćemo da li je negde došlo do 
 ```{r}
 str(train)
 ```
-Na osnovu strukture podataka, trebalo bi da promenimo je Licensed i official_video kolone, nad kojima bi trebalo izvršiti faktorizaciju, kako smo dodali novu vrednost za pesme koje nemaju video. Takođe, kako kolona Album_type ima fiksiran skup vrednosti, možemo da odradimo faktorizaciju i nad tom kolonom.
+
+Na osnovu strukture podataka, trebalo bi da promenimo je Licensed i Official_video kolone, nad kojima bi trebalo izvršiti faktorizaciju, kako smo dodali novu vrednost za pesme koje nemaju video. Takođe, kako kolona Album_type ima fiksiran skup vrednosti, možemo da odradimo faktorizaciju i nad tom kolonom.
 
 ```{r}
-faktorizuj<- function(df) {
-  df %>%
-    mutate(
+faktorizuj= function(df) {
+  df %>% mutate(
       Licensed = factor(Licensed, levels = c("True", "False", "Unknown")),
-      official_video = factor(official_video, levels = c("True", "False", "Unknown")),
+      Official_video = factor(Official_video, levels = c("True", "False", "Unknown")),
       Album_type = factor(Album_type)
     )
 }
 
-train <- faktorizuj(train)
-test <- faktorizuj(test)
+train = faktorizuj(train)
+test = faktorizuj(test)
 ```
 
 ```{r}
 str(train)
 ```
-
 Nakon ovih promena, strukturalna šema podataka izgleda u redu.
 
 # Feature engineering
 
 ## Artist 
 
-Iz bivarijantne analize znamo da Artist ima uticaj na Stream, ali kolona ima previše vrednosti da bi mogla direktno da se koristi u modelu bez enkodiranja, ali nam bila jako značajan i zanimljiv prediktor za sagledavanje.
+Iz bivarijantne analize i generalnog domenskog znanja znamo da Artist ima uticaj na Stream, ali kolona ima previše vrednosti da bi mogla direktno da se koristi u modelu bez enkodiranja, ali nam bila jako značajan i zanimljiv prediktor za sagledavanje.
 
-Prva pomisao je da iskoristimo prosečan Stream po izvođaču kao numerički podatak, međutim ovaj pristup nosi rizik od curenja podataka, jer ako u prosek uključimo i Stream same pesme, ta pesma ima jasan podatak o sopstvenoj ciljnoj vrednosti kroz tu kolonu.
+Prva pomisao je da iskoristimo prosečan Stream po izvođaču kao numerički podatak, međutim ovaj pristup nosi rizik od curenja podataka, jer ako u prosek uključimo i Stream same pesme, ta pesma ima jasan podatak o sopstvenoj ciljnoj vrednosti.
 
-Takođe postoji mogućnost da frequency encoding bude dovoljan, ali kako iz univarijantne analize znamo da skoro svaki izvođač ima tačno 10 pesama u skupu, ova kolona bi imala jako malo varijanse i nosila bi slab signal.
+Imamo mogućnost i da iskoristimo frequency encoding, ali kako iz univarijantne analize znamo da skoro svaki izvođač ima tačno 10 pesama u skupu, ova kolona ne bi imala smisla jer bi za većinu pesama imala istu vrednost. 
 
-Zbog toga se opredeljujemo za **leave-one-out (LOO) median encoding**, pri čemu za svaku pesmu računamo medijanu stream-ova *ostalih* pesama istog izvođača, bez trenutne pesme. Uzimamo medijanu umesto srednje vrednosti jer je Stream izraženo desna asimetrična, pa bi srednja vrednost pokupila dosta uticaja od najpopularnijih pesama umetnika.
+Zbog toga se opredeljujemo za **leave-one-out (LOO) median encoding**, pri čemu za svaku pesmu računamo medijanu stream-ova *ostalih* pesama istog izvođača, bez trenutne pesme. Uzimamo medijanu umesto srednje vrednosti jer je Stream izraženo desno asimetričan, pa bi srednja vrednost pokupila dosta uticaja od najpopularnijih pesama umetnika.
 
-Sam LOO princip (izuzimanje trenutne pesme) rešava curenje na nivou pojedinačnog reda, ali ne i curenje na nivou trening i test granice, ako bismo LOO medijanu računali na celom skupu, Stream test pesama bi i dalje ulazio u izračunavanje feature-a za trening pesme istog izvođača (i obrnuto), jer LOO samo izuzima trenutni red, ne i sve redove van trening skupa. Zato LOO medijanu računamo isključivo unutar trening skupa, koristeći samo ostale trening pesme istog izvođača, dok test skup dobija medijanu Stream-ova tog izvođača, računat isključivo na trening podacima - test-ova sopstvena vrednost Stream-a se nigde ne koristi za računanje njegovog sopstvenog feature-a.
+Sam princip izostavljanja jedne pesme rešava curenje na nivou pojedinačnog reda, ali ne i na nivou trening i test granice, ako bismo LOO medijanu računali na celom skupu, Stream test pesama bi i dalje ulazio u izračunavanje feature-a za trening pesme istog izvođača (i obrnuto), jer LOO samo izuzima trenutni red, ne i sve redove van trening skupa. Zato LOO medijanu računamo isključivo unutar trening skupa, dok test skup dobija medijanu Stream-ova tog izvođača, računat isključivo na trening podacima.
 
 ```{r}
-loo_medijana <- function(x) {
-  n <- length(x)
+loo_medijana = function(x) {
+  n = length(x)
   if (n <= 1) return(rep(NA_real_, n))
   sapply(seq_along(x), function(i) median(x[-i], na.rm = TRUE))
 }
 
-train <- train %>%
+train = train %>%
   group_by(Artist) %>%
   mutate(Artist_LOO_stream = loo_medijana(Stream)) %>%
   ungroup()
 
-globalna_medijana_train_stream <- median(train$Stream, na.rm = TRUE)
+globalna_medijana_train_stream = median(train$Stream, na.rm = TRUE)
 
-train <- train %>%
+train = train %>%
   mutate(Artist_LOO_stream = ifelse(is.na(Artist_LOO_stream), globalna_medijana_train_stream, Artist_LOO_stream))
 
-artist_full_median_train <- train %>%
+artist_full_median_train = train %>%
   group_by(Artist) %>%
   summarise(Artist_median_stream = median(Stream, na.rm = TRUE), .groups = "drop")
 
-test <- test %>%
+test = test %>%
   left_join(artist_full_median_train, by = "Artist") %>%
   mutate(Artist_LOO_stream = ifelse(is.na(Artist_median_stream), globalna_medijana_train_stream, Artist_median_stream)) %>%
   select(-Artist_median_stream)
@@ -1556,7 +1552,6 @@ sum(is.na(test$Artist_LOO_stream))
 ```{r}
 cor.test(train$Artist_LOO_stream, train$Stream, method = "spearman")
 ```
-
 Spearmanova korelacija, na trening skupu, potvrđuje umerenu do jaku pozitivnu vezu između dodate kolone i Stream-a, što znači da je ova kolona definitivno kandidat za prediktor.
 
 ```{r}
@@ -1570,12 +1565,10 @@ train %>%
 
 ## Engagement rate (Likes, Comments)
 
-Views, Likes i Comments su međusobno jako korelisani (multikolinearnost). Views zadržavamo kao glavnog predstavnika YouTube popularnosti (najjača veza sa Stream-om), dok od Likes i Comments možemo da napravimo rate feature-e umesto sirovih brojeva, što nam daje informaciju o tome koliko je publika angažovana prilikom gledanja videa, a ne samo koliko je video pogledan.
-
-Ova transformacija je red-po-red (koristi samo kolone iz istog reda), pa ne nosi rizik od curenja - primenjujemo je identično na trening i na test.
+Views, Likes i Comments su međusobno jako korelisani, pa to može izazvati problem multikolinearnosti. Views ćemo svakako zadržati kao glavnog pokazatelja YouTube popularnosti, dok od Likes i Comments možemo da napravimo nove feature-e, koji će pokazivati koliko je publika angažovana prilikom gledanja videa.
 
 ```{r}
-dodaj_engagement_rate <- function(df) {
+dodaj_engagement_rate = function(df) {
   df %>%
     mutate(
       Likes_rate = ifelse(has_youtube & Views > 0, Likes / Views, 0),
@@ -1583,8 +1576,8 @@ dodaj_engagement_rate <- function(df) {
     )
 }
 
-train <- dodaj_engagement_rate(train)
-test <- dodaj_engagement_rate(test)
+train = dodaj_engagement_rate(train)
+test = dodaj_engagement_rate(test)
 
 summary(train$Likes_rate)
 summary(train$Comments_rate)
@@ -1596,41 +1589,49 @@ cor.test(train$Likes_rate, train$Stream, method = "spearman")
 cor.test(train$Comments_rate, train$Stream, method = "spearman")
 ```
 
-## Mood kvadrant (Valence x Energy)
-
-Nijedna audio karakteristika pojedinačno ne prelazi korelaciju od |0.14| sa Stream-om, što ukazuje da to kako pesma zvuči ima slab pojedinačan uticaj na njenu popularnost. Umesto da posmatramo karakteristike izolovano, pokušaćemo da ih kombinujemo na način koji ima muzički smisao, za slučaj da kombinacija nosi jači signal od pojedinačnih kolona. Valence i Energy su dve karakteristike koje se u muzičkoj psihologiji često kombinuju u kvadrant raspoloženja.
-
-I ova transformacija je red-po-red, pa je primenjujemo na oba skupa, a dijagnostički test (kruskal_effsize) radimo samo na trening skupu, kako ne bismo birali feature-e gledajući u test.
+Ove kolone pokazuju znatno manju korelaciju sa Stream-ovima od njihovih izvornih verzija, ali se svakako kasnije u nelinearnim modelima mogu pokazati kao korisni prediktori. Svakako je bitno i proveriti kolika je korelacija ovih kolona sa kolonom Views.
 
 ```{r}
-dodaj_mood_kvadrant <- function(df) {
+cor.test(train$Likes_rate, train$Views, method = "spearman")
+cor.test(train$Comments_rate, train$Views, method = "spearman")
+```
+
+Korelacija sa Views-om je daleko manja, tako da se ove kolone, ukoliko bude bilo potrebe za tim, takođe mogu koristiti kao prediktori, bez rizika od kolinearnosti sa ovom kolonom.
+
+## Mood kvadrant (Valence x Energy)
+
+Nijedna audio karakteristika pojedinačno ne prelazi korelaciju od |0.14| sa Stream-om, što nam već ukazuje da to kako pesma zvuči ima slab uticaj na njenu popularnost. Međutim, umesto da posmatramo karakteristike izolovano, pokušaćemo da ih kombinujemo na način koji ima muzički smisao, za slučaj da kombinacija nosi jači signal od pojedinačnih kolona. Valence i Energy su dve karakteristike koje se koriste za opisivanje muzičkog raspoloženja. Energy predstavlja koliko pesma deluje mirno ili intenzivno, dok Valence opisuje koliko deluje pozitivno ili negativno. Njihovim kombinovanjem mogu se formirati četiri kvadranta raspoloženja: visoka vrednost Energy i visoka Valence odgovaraju srećnom i uzbudljivom raspoloženju, visoka Energy i niska Valence napetom ili ljutom, niska Energy i visoka Valence mirnom i zadovoljavajućem, a niska Energy i niska Valence tužnom raspoloženju (Mix Analyzer, 2026). :contentReference[oaicite:0]{index=0} 
+
+
+```{r}
+add_mood_quadrant = function(df) {
   df %>%
     mutate(
-      Mood_kvadrant = case_when(
+      Mood_quadrant = case_when(
         Valence >= 0.5 & Energy >= 0.5 ~ "Happy/Energetic",
         Valence < 0.5 & Energy >= 0.5 ~ "Anger/Unpleasant",
         Valence >= 0.5 & Energy < 0.5 ~ "Calm/Relaxing",
         Valence < 0.5 & Energy < 0.5 ~ "Sad/Melancholic"
       ),
-      Mood_kvadrant = factor(Mood_kvadrant)
+      Mood_quadrant = factor(Mood_quadrant)
     )
 }
 
-train <- dodaj_mood_kvadrant(train)
-test <- dodaj_mood_kvadrant(test)
+train = add_mood_quadrant(train)
+test = add_mood_quadrant(test)
 
-kruskal_effsize(train, Stream ~ Mood_kvadrant)
+kruskal_effsize(train, Stream ~ Mood_quadrant)
 ```
 
-Kruskal-Wallis effect size za Mood_kvadrant spada u kategoriju zanemarljivo malog efekta.
+Kruskal-Wallis effect size za Mood_quadrant spada u kategoriju zanemarljivo malog efekta.
 
 ## Danceability i Energy (Party index)
 
-Pošto kombinacija Valence i Energy (Mood_kvadrant) pokazuje zanemarljiv efekat, probamo drugu kombinaciju audio karakteristika koja ima smisla iz domenskog znanja - Danceability i Energy zajedno bi trebalo da opisuju koliko je pesma zabavna i energična. Umesto kategorijske podele, pravimo feature množenjem dve vrednosti, kako bismo zadržali kontinualnu prirodu podataka.
+Pošto kombinacija Valence i Energy (Mood_quadrant) pokazuje zanemarljiv efekat, probaćemo drugu kombinaciju audio karakteristika koja ima smisla iz domenskog znanja. Danceability i Energy zajedno bi trebalo da opisuju koliko je pesma zabavna i energična. Umesto kategorijske podele, pravimo feature množenjem dve vrednosti, kako bismo zadržali kontinualnu prirodu podataka.
 
 ```{r}
-train <- train %>% mutate(Party_index = Danceability * Energy)
-test <- test %>% mutate(Party_index = Danceability * Energy)
+train = train %>% mutate(Party_index = Danceability * Energy)
+test = test %>% mutate(Party_index = Danceability * Energy)
 
 cor.test(train$Party_index, train$Stream, method = "spearman")
 ```
@@ -1642,7 +1643,7 @@ Party_index ima nešto jaču vezu sa Stream-om nego njegove pojedinačne kompone
 Spotify-jeva zvanična dokumentacija predlaže konkretne pragove za pojedine audio karakteristike koji ukazuju na specifičnu vrstu sadržaja, npr. Speechiness iznad 0.66 ukazuje da je numera pretežno govorni sadržaj, Instrumentalness iznad 0.5 ukazuje na instrumentalnu numeru bez vokala, a Liveness iznad 0.8 ukazuje na veliku verovatnoću da je snimak uživo izvođenje.
 
 ```{r}
-dodaj_binarne_flagove <- function(df) {
+dodaj_binarne_flagove = function(df) {
   df %>%
     mutate(
       Is_spoken = ifelse(Speechiness > 0.66, TRUE, FALSE),
@@ -1651,8 +1652,8 @@ dodaj_binarne_flagove <- function(df) {
     )
 }
 
-train <- dodaj_binarne_flagove(train)
-test <- dodaj_binarne_flagove(test)
+train = dodaj_binarne_flagove(train)
+test = dodaj_binarne_flagove(test)
 ```
 
 ```{r}
@@ -1676,34 +1677,34 @@ Sve tri binarne klasifikacije pokazuju statistički značajnu, ali po rstatix kl
 Key predstavlja muzički tonalitet pesme, kodiran kao ceo broj od 0 do 11, pri čemu vrednost -1 označava da tonalitet nije detektovan. Iako je Key tehnički numerički kodiran, on je po prirodi kategorijska promenljiva - brojevi ne nose redosled, pa možemo da ga tretiramo kao faktor.
 
 ```{r}
-train <- train %>% mutate(Key_faktor = factor(Key))
-test <- test %>% mutate(Key_faktor = factor(Key))
+train = train %>% mutate(Key_factor = factor(Key))
+test = test %>% mutate(Key_factor = factor(Key))
 
-table(train$Key_faktor)
+table(train$Key_factor)
 ```
 
 ```{r}
-kruskal.test(Stream ~ Key_faktor, data = train)
-kruskal_effsize(train, Stream ~ Key_faktor)
+kruskal.test(Stream ~ Key_factor, data = train)
+kruskal_effsize(train, Stream ~ Key_factor)
 ```
 
 ```{r}
-ggplot(train, aes(x = Key_faktor, y = log1p(Stream), fill = Key_faktor)) +
+ggplot(train, aes(x = Key_factor, y = log1p(Stream), fill = Key_factor)) +
   geom_boxplot(outlier.shape = NA, alpha = 0.7) +
   theme_minimal() +
   labs(title = "Distribucija Stream-a po muzickom tonalitetu (log skala, trening skup)", x = "Key", y = "log(Stream + 1)") +
   theme(legend.position = "none")
 ```
 
-Kruskal-Wallis test za Key_faktor pokazuje jako mali effect size, koji je zanemarljiv.
+Kruskal-Wallis test za Key_factor pokazuje jako mali effect size, koji je zanemarljiv.
 
 ## Kolaboracija (feat. u nazivu pesme)
 
 Pesme sa više izvođača (imaju "feat." ili "ft." u nazivu) mogle bi da imaju veći broj stream-ova, jer kombinuju publiku više izvođača. Ovu informaciju uzimamo direktno iz Track kolone, pretragom teksta na oznake koje ukazuju na gostujuće izvođače.
 
 ```{r}
-train <- train %>% mutate(Is_collab = grepl("feat\\.|ft\\.|featuring", Track, ignore.case = TRUE))
-test <- test %>% mutate(Is_collab = grepl("feat\\.|ft\\.|featuring", Track, ignore.case = TRUE))
+train = train %>% mutate(Is_collab = grepl("feat\\.|ft\\.|featuring", Track, ignore.case = TRUE))
+test = test %>% mutate(Is_collab = grepl("feat\\.|ft\\.|featuring", Track, ignore.case = TRUE))
 
 table(train$Is_collab)
 ```
@@ -1714,27 +1715,27 @@ wilcox_effsize(Stream ~ Is_collab, data = train)
 
 Ova kolona takođe pokazuje jako slabu povezanost sa kolonom Stream.
 
-## Licensed i official_video
+## Licensed i Official_video
 
-Licensed i official_video pojedinačno imaju mali, ali statistički značajan efekat na Stream, i međusobno su povezane. Umesto da ih koristimo kao dve odvojene binarne kolone, kombinujemo ih u jednu kategorijsku promenljivu sa 4 nivoa.
+Licensed i Official_video pojedinačno imaju mali, ali statistički značajan efekat na Stream, i međusobno su povezane. Umesto da ih koristimo kao dve odvojene binarne kolone, kombinujemo ih u jednu kategorijsku promenljivu sa 4 nivoa.
 
 ```{r}
-dodaj_licensed_video_combo <- function(df) {
+dodaj_licensed_video_combo = function(df) {
   df %>%
     mutate(
       Licensed_video_combo = case_when(
-        Licensed == "True" & official_video == "True" ~ "Licensed_official",
-        Licensed == "True" & official_video == "False" ~ "Licensed_unofficial",
-        Licensed == "False" & official_video == "True" ~ "Unlicensed_official",
-        Licensed == "False" & official_video == "False" ~ "Unlicensed_unofficial",
+        Licensed == "True" & Official_video == "True" ~ "Licensed_official",
+        Licensed == "True" & Official_video == "False" ~ "Licensed_unofficial",
+        Licensed == "False" & Official_video == "True" ~ "Unlicensed_official",
+        Licensed == "False" & Official_video == "False" ~ "Unlicensed_unofficial",
         TRUE ~ 'Unknown'
       ),
       Licensed_video_combo = factor(Licensed_video_combo)
     )
 }
 
-train <- dodaj_licensed_video_combo(train)
-test <- dodaj_licensed_video_combo(test)
+train = dodaj_licensed_video_combo(train)
+test = dodaj_licensed_video_combo(test)
 
 table(train$Licensed_video_combo, useNA = "always")
 ```
@@ -1744,7 +1745,7 @@ kruskal.test(Stream ~ Licensed_video_combo, data = train)
 kruskal_effsize(train, Stream ~ Licensed_video_combo)
 ```
 
-Kombinovana kategorija Licensed_video_combo pokazuje slab efekat na Stream, u skladu sa pojedinačnim efektima Licensed i official_video iz bivarijantne analize.
+Kombinovana kategorija Licensed_video_combo pokazuje slab efekat na Stream, u skladu sa pojedinačnim efektima Licensed i Official_video iz bivarijantne analize.
 
 # Multivarijantna analiza
 
@@ -1753,14 +1754,14 @@ Bivarijantna analiza i feature engineering su nam dali uvid u to kako se svaka p
 ## Izbor prediktora i dva modela
 
 - **Model A  (bez YouTube atributa)**: Artist_LOO_stream, Album_type, Genre, audio karakteristike (Danceability, Energy, Loudness, Speechiness, Acousticness, Instrumentalness, Liveness, Valence, Tempo, Duration_ms). Ovo su promenljive koje (osim Genre iz API-ja) postoje nezavisno od toga da li pesma ima YouTube spot.
-- **Model B (sa YouTube signalom)**: Model A i Views, Licensed, official_video, uključujemo i signal popularnosti sa druge platforme.
+- **Model B (sa YouTube signalom)**: Model A i Views, Licensed, Official_video, uključujemo i signal popularnosti sa druge platforme.
 
-Views, Licensed i official_video se mere u istom vremenskom okviru kao i sam Stream, ne pre objave pesme. Likes i Comments ostaju izostavljeni iz oba modela zbog kolinearnosti sa Views.
+Views, Licensed i Official_video se mere u istom vremenskom okviru kao i sam Stream, ne pre objave pesme. Likes i Comments ostaju izostavljeni iz oba modela zbog kolinearnosti sa Views.
 
-Oba modela grade se samo nad pesmama koje imaju YouTube spot (`has_youtube`), jer Views,Licensed i official_video imaju smisla samo tada - ovo obezbeđuje da su Model A i Model B upoređeni nad istim podacima.
+Oba modela grade se samo nad pesmama koje imaju YouTube spot (`has_youtube`), jer Views,Licensed i Official_video imaju smisla samo tada - ovo obezbeđuje da su Model A i Model B upoređeni nad istim podacima.
 
 ```{r}
-data_model <- train %>% filter(has_youtube) %>% mutate(Licensed = droplevels(Licensed), official_video = droplevels(official_video))
+data_model = train %>% filter(has_youtube) %>% mutate(Licensed = droplevels(Licensed), Official_video = droplevels(Official_video))
 
 nrow(data_model)
 ```
@@ -1768,7 +1769,7 @@ nrow(data_model)
 ## Provera multikolinearnosti (VIF)
 
 ```{r}
-model_A <- lm(log1p(Stream) ~ Artist_LOO_stream + Album_type + 
+model_A = lm(log1p(Stream) ~ Artist_LOO_stream + Album_type + 
     Danceability + Energy + Loudness + Speechiness + Acousticness +
     Instrumentalness + Liveness + Valence + Tempo + Duration_ms,
   data = data_model)
@@ -1777,11 +1778,11 @@ vif(model_A)
 ```
 
 ```{r}
-model_B <- lm(
+model_B = lm(
   log1p(Stream) ~ Artist_LOO_stream + Album_type +
     Danceability + Energy + Loudness + Speechiness + Acousticness +
     Instrumentalness + Liveness + Valence + Tempo + Duration_ms +
-    log1p(Views) + Licensed + official_video,
+    log1p(Views) + Licensed + Official_video,
   data = data_model
 )
 
@@ -1799,13 +1800,13 @@ Model A objašnjava oko 27% varijanse, što je solidno za model koji se oslanja 
 ```{r}
 summary(model_B)
 ```
-Kad se doda Views (uz Licensed/official_video), R² skoči na skoro 0.5, a Views je, očekivano, najjači prediktor u celom modelu.
+Kad se doda Views (uz Licensed/Official_video), R² skoči na skoro 0.5, a Views je, očekivano, najjači prediktor u celom modelu.
 
 
 ```{r}
 anova(model_A, model_B)
 ```
-Anova test potvrđuje ono što se već moglo zaključiti, dodavanje Views/Licensed/official_video značajno poboljšava model.
+Anova test potvrđuje ono što se već moglo zaključiti, dodavanje Views/Licensed/Official_video značajno poboljšava model.
 
 ### Dijagnostika modela
 
@@ -1830,11 +1831,11 @@ Testiramo iste interakcije koje imaju smisla iz domenskog znanja kao u ranijem f
 - **Loudness:Energy** - da li kombinacija glasnoće i energije nosi dodatni signalS
 
 ```{r}
-model_B_interakcije <- lm(
+model_B_interakcije = lm(
   log1p(Stream) ~ Artist_LOO_stream + Album_type + 
     Danceability + Energy + Loudness + Speechiness + Acousticness +
     Instrumentalness + Liveness + Valence + Tempo + Duration_ms +
-    log1p(Views) + Licensed + official_video +
+    log1p(Views) + Licensed + Official_video +
     Danceability:Energy + Loudness:Energy,
   data = data_model
 )
@@ -1851,23 +1852,22 @@ Iz ovoga možemo zaključiti da baš i nema sinergije među ovim prediktorima, j
 
 # Pretprocesiranje podataka
 
-Brišemo linkove i kolone bez prediktivne vrednosti za modele, kao i kolone koje su višak zbog feature engeneering-a, ili su nastale feature engineering-om, a nisu se pokazale kao da bi imale veći potencijal od inicijalnih verzija kolona. Ovaj korak primenjujemo identično i na trening i na test skup - podela na trening i test je urađena znatno ranije (pre imputacije i enkodiranja), pa ovde više ne generišemo novu podelu, samo završavamo pripremu kolona za modele.
+Brišemo linkove i kolone bez prediktivne vrednosti za modele, kao i kolone koje su višak zbog feature engeneering-a, ili su nastale feature engineering-om, a nisu se pokazale kao da bi imale veći potencijal od inicijalnih verzija kolona. 
 
-Pored toga, sklonićemo kolone za koje je koeficijent korelacije ekstremno nizak i koje sigurno neće imati uticaj na ciljnu promenljivu:
+Pored toga, sklonićemo kolone za koje smo zakljucili da nam neće biti relevantne za dalji rad:
 - Likes i Comments - visoka korelacija sa Views, sprečavaje multikolinearnosti
-- official_video i Licensed - napravljena je kombinovana kolona koja podjednako kvalitetno utiče na ciljnu promenljivu.
-- Mood_kvadrant, Is_live, Is_instrumental, Is_spoken, Is_collab - kolone nastale feature engineering, koje se nisu pokazale kao dobri prediktori ni nakon transformacija.
+- Official_video i Licensed - napravljena je kombinovana kolona koja podjednako kvalitetno utiče na ciljnu promenljivu.
+- Key - kreirana je faktorizovana kolona za key
+- Kolone nastale feature engineering-om - kolone koje se nisu pokazale kao bolji prediktori od svojih originalnih verzija (Is_live, Is_collab, Is_instrumental, Is_spoken)
 
 ```{r}
-drop_kolone <- function(df) {
+drop_kolone = function(df) {
   df %>%
-    select(-X, -Url_spotify, -Uri, -Url_youtube, -Title, -Description, -Channel, -Album, -Key,
-           -Mood_kvadrant, -Is_collab, -Is_spoken, -Is_instrumental, -Is_live,
-           -Licensed, -official_video, -Likes, -Comments, -Key_faktor)
+    select(-X, -Url_spotify, -Uri, -Url_youtube, -Title, -Description, -Channel, -Album, -Key,-Licensed, -Official_video, -Likes, -Comments, -Is_live, -Is_collab, -Is_spoken, -Is_instrumental)
 }
 
-train <- drop_kolone(train)
-test <- drop_kolone(test)
+train = drop_kolone(train)
+test = drop_kolone(test)
 
 ncol(train)
 names(train)
@@ -1876,8 +1876,7 @@ names(train)
 Pored toga, u okviru podataka postoji problem koji će potencijalno nastati u okviru primene linearne regresije, a to će biti Views koji su postavljeni na 0, usled imputacije podataka, kako će ovo verovatno poremetiti linearni model koji ne može da zna da li su ovi podaci zapravo 0 ili ne, uprkos postojanju has_youtube kolone, tako da ćemo ove redove ipak obrisati, iako je ovo dobar faktor za pregledanje u okviru ensemble modela, kako bi ocene bile fer, tj. kako bi se modeli trenirali i ocenjivali na istim skupovima podataka.
 
 ```{r}
-data <- data %>% filter(has_youtube == TRUE)
-
+data = data %>% filter(has_youtube == TRUE)
 data = data %>% select(-has_youtube)
 ```
 
@@ -1885,7 +1884,7 @@ data = data %>% select(-has_youtube)
 Radimo faktorizaciju kolona za koje je to potrebno.
 
 ```{r}
-faktorizuj_finalno <- function(df) {
+faktorizuj_finalno = function(df) {
   df %>%
     mutate(
       Licensed_video_combo = as.character(Licensed_video_combo),
@@ -1895,8 +1894,8 @@ faktorizuj_finalno <- function(df) {
     mutate(across(where(is.logical), as.factor))
 }
 
-train <- faktorizuj_finalno(train)
-test <- faktorizuj_finalno(test)
+train = faktorizuj_finalno(train)
+test = faktorizuj_finalno(test)
 ```
 
 Trening i test skup su već formirani mnogo ranije (pre svake imputacije i enkodiranja koji zavise od Stream-a), pa ih ovde samo čuvamo u fajlove.
@@ -1907,7 +1906,7 @@ nrow(test)
 ```
 
 ```{r}
-out_dir <- "Podaci_za_model"
+out_dir = "Podaci_za_model"
 dir.create(out_dir, showWarnings = FALSE)
 
 write_csv(train, file.path(out_dir, "train.csv"))
@@ -1922,8 +1921,8 @@ write_csv(test, file.path(out_dir, "test.csv"))
 Učitavamo pripremljene podatke za trening i test.
 
 ```{r message=FALSE}
-train <- read_csv("Podaci_za_model/train.csv")
-test <- read_csv("Podaci_za_model/test.csv")
+train = read_csv("Podaci_za_model/train.csv")
+test = read_csv("Podaci_za_model/test.csv")
 
 nrow(train)
 nrow(test)
@@ -1932,7 +1931,7 @@ nrow(test)
 Upisivanje podataka u fajl ne čuva tip faktora (sve što je bilo faktor postaje običan tekst pri čuvanju), pa opet radimo faktorizaciju.
 
 ```{r}
-uskladi_tipove <- function(df) {
+uskladi_tipove = function(df) {
   df %>%
     mutate(
       Album_type = factor(Album_type),
@@ -1944,8 +1943,8 @@ uskladi_tipove <- function(df) {
     )
 }
 
-train_ml <- uskladi_tipove(train)
-test_ml <- uskladi_tipove(test)
+train_ml = uskladi_tipove(train)
+test_ml = uskladi_tipove(test)
 ```
 
 ## Napredni modeli mašinskog učenja
@@ -1959,27 +1958,25 @@ Random Forest je bagging pristup (svako stablo se trenira nad bootstrap uzorkom)
 Formula je ista za sva tri modela.
 
 ```{r}
-formula_ml <- as.formula(
+formula_ml = as.formula(
   log1p(Stream) ~ Album_type + Loudness + Acousticness + Instrumentalness +
     Views + Artist_LOO_stream + Likes_rate + Comments_rate + Energy + Duration_ms,
-    + Tempo + Liveness + Danceability + Valence +
-    Party_index + Licensed_video_combo
-)
+    + Tempo + Liveness + Danceability + Valence + Party_index + Licensed_video_combo)
 ```
 
 XGBoost i LightGBM zahtevaju numeričku matricu, pa moramo da kodiramo kategorijske kolone. Pošto train i test dolaze iz dva odvojena fajla, privremeno ćemo ih spojiti da bi matrica imala identične kolone za oba.
 
 ```{r}
-n_train <- nrow(train_ml)
+n_train = nrow(train_ml)
 
-data_matrica <- bind_rows(train_ml, test_ml)
-X_full <- model.matrix(formula_ml, data = data_matrica)[, -1]
-y_full <- log1p(data_matrica$Stream)
+data_matrica = bind_rows(train_ml, test_ml)
+X_full = model.matrix(formula_ml, data = data_matrica)[, -1]
+y_full = log1p(data_matrica$Stream)
 
-X_train <- X_full[1:n_train, ]
-X_test <- X_full[(n_train + 1):nrow(X_full), ]
-y_train <- y_full[1:n_train]
-y_test <- y_full[(n_train + 1):length(y_full)]
+X_train = X_full[1:n_train, ]
+X_test = X_full[(n_train + 1):nrow(X_full), ]
+y_train = y_full[1:n_train]
+y_test = y_full[(n_train + 1):length(y_full)]
 
 dim(X_train)
 dim(X_test)
@@ -1989,21 +1986,21 @@ Za XGBoost i LightGBM dodatno moramo da izdvojimo validacioni skup iz `train` de
 
 ```{r}
 set.seed(123)
-val_idx <- sample(seq_len(nrow(X_train)), size = floor(0.2 * nrow(X_train)))
+val_idx = sample(seq_len(nrow(X_train)), size = floor(0.2 * nrow(X_train)))
 
-X_fit <- X_train[-val_idx, ]
-X_valid <- X_train[val_idx, ]
-y_fit <- y_train[-val_idx]
-y_valid <- y_train[val_idx]
+X_fit = X_train[-val_idx, ]
+X_valid = X_train[val_idx, ]
+y_fit = y_train[-val_idx]
+y_valid = y_train[val_idx]
 ```
 
 Nakon toga, neophodno je da kreiramo zajedničku funkciju za evaluaciju, jer sva tri modela upoređujemo pomoću MAE i RMSE, kao i na R².
 
 ```{r}
-eval_metrics <- function(actual_log, pred_log) {
-  rmse_log <- sqrt(mean((actual_log - pred_log)^2))
-  mae_log <- mean(abs(actual_log - pred_log))
-  r2_log <- 1 - sum((actual_log - pred_log)^2) / sum((actual_log - mean(actual_log))^2)
+eval_metrics = function(actual_log, pred_log) {
+  rmse_log = sqrt(mean((actual_log - pred_log)^2))
+  mae_log = mean(abs(actual_log - pred_log))
+  r2_log = 1 - sum((actual_log - pred_log)^2) / sum((actual_log - mean(actual_log))^2)
   tibble(RMSE_log = rmse_log, MAE_log = mae_log, R2_log = r2_log)
 }
 ```
@@ -2015,7 +2012,7 @@ Random Forest je algoritam mašinskog učenja koji koristi veliki broj stabala o
 Random Forest nema early stopping, pa možemo da ga treniramo direktno nad celim skupom za trening.
 
 ```{r}
-rf_model <- ranger(
+rf_model = ranger(
   formula_ml,
   data = train_ml,
   num.trees = 500,
@@ -2027,23 +2024,23 @@ rf_model <- ranger(
 Nakon kreiranja modela nad treningom skupom, izvršićemo predikciju i ocenu za test skup.
 
 ```{r}
-rf_pred <- predict(rf_model, data = test_ml)
-rf_pred_values <- rf_pred$predictions
+rf_pred = predict(rf_model, data = test_ml)
+rf_pred_values = rf_pred$predictions
 
-rf_eval <- eval_metrics(y_test, rf_pred_values) %>% mutate(Model = "Random Forest")
+rf_eval = eval_metrics(y_test, rf_pred_values) %>% mutate(Model = "Random Forest")
 rf_eval
 ```
 Random Forest daje bolje perfomanse od linearne regresije, po svim metrikama, jer je model uspeo da bolje uhvati odnose između prediktora i ciljne promenljive, što nam ukazuje na to da postoje nelinearni odnosi u podacima. 
 
 
 ```{r}
-rf_imp <- ranger::importance(rf_model) %>%
+rf_imp = ranger::importance(rf_model) %>%
   as.data.frame() %>%
   rownames_to_column("Feature")
 
-names(rf_imp)[2] <- "Importance"
+names(rf_imp)[2] = "Importance"
 
-rf_imp <- rf_imp %>%
+rf_imp = rf_imp %>%
   arrange(desc(Importance)) %>%
   slice_head(n = 15)
 
@@ -2064,17 +2061,17 @@ XGBoost primenjuje early stopping, tako da nam je potreban i validacioni skup, j
 Pored broja iteracija, model zavisi i od hiperparametara poput maksimalne dubine stabla (max_depth) i stope učenja (eta), koji se ne mogu odrediti automatski, pa ćemo sprovesti kros validaciju da bismo pronašli ove parametre.
 
 ```{r}
-dtrain_full <- xgb.DMatrix(data = X_train, label = y_train)
+dtrain_full = xgb.DMatrix(data = X_train, label = y_train)
 
-grid_xgb <- expand.grid(
+grid_xgb = expand.grid(
   max_depth = c(4, 6),
   eta = c(0.05, 0.1)
 )
 
-xgb_results <- vector("list", nrow(grid_xgb))
+xgb_results = vector("list", nrow(grid_xgb))
 
 for (i in seq_len(nrow(grid_xgb))) {
-  params_i <- list(
+  params_i = list(
     objective = "reg:squarederror",
     max_depth = grid_xgb$max_depth[i],
     eta = grid_xgb$eta[i],
@@ -2083,7 +2080,7 @@ for (i in seq_len(nrow(grid_xgb))) {
   )
 
   set.seed(123)
-  cv_i <- xgb.cv(
+  cv_i = xgb.cv(
     params = params_i,
     data = dtrain_full,
     nrounds = 500,
@@ -2093,9 +2090,9 @@ for (i in seq_len(nrow(grid_xgb))) {
     verbose = 0
   )
 
-  best_row <- cv_i$evaluation_log[which.min(cv_i$evaluation_log$test_rmse_mean), ]
+  best_row = cv_i$evaluation_log[which.min(cv_i$evaluation_log$test_rmse_mean), ]
 
-  xgb_results[[i]] <- tibble(
+  xgb_results[[i]] = tibble(
     max_depth = grid_xgb$max_depth[i],
     eta = grid_xgb$eta[i],
     best_iter = best_row$iter,
@@ -2103,12 +2100,12 @@ for (i in seq_len(nrow(grid_xgb))) {
   )
 }
 
-xgb_results_df <- bind_rows(xgb_results) %>% arrange(best_score)
+xgb_results_df = bind_rows(xgb_results) %>% arrange(best_score)
 xgb_results_df
 
-best_xgb <- xgb_results_df %>% slice(1)
+best_xgb = xgb_results_df %>% slice(1)
 
-params <- list(
+params = list(
   objective = "reg:squarederror",
   max_depth = best_xgb$max_depth,
   eta = best_xgb$eta,
@@ -2117,7 +2114,7 @@ params <- list(
 )
 
 set.seed(123)
-xgb_model <- xgb.train(
+xgb_model = xgb.train(
   params = params,
   data = dtrain_full,
   nrounds = best_xgb$best_iter,
@@ -2126,16 +2123,16 @@ xgb_model <- xgb.train(
 ```
 
 ```{r}
-dtest <- xgb.DMatrix(data = X_test)
-xgb_pred <- predict(xgb_model, dtest)
+dtest = xgb.DMatrix(data = X_test)
+xgb_pred = predict(xgb_model, dtest)
 
-xgb_eval <- eval_metrics(y_test, xgb_pred) %>% mutate(Model = "XGBoost")
+xgb_eval = eval_metrics(y_test, xgb_pred) %>% mutate(Model = "XGBoost")
 xgb_eval
 ```
 XGBoost, nakon pretraživanja hiperparametara (max_depth, eta) uz k-fold unakrsnu validaciju, postiže RMSE od 0.944 i R² od 0.675, malo slabije rezultate od Random Forest-a. 
 
 ```{r}
-xgb_imp <- xgb.importance(feature_names = colnames(X_train), model = xgb_model) %>%
+xgb_imp = xgb.importance(feature_names = colnames(X_train), model = xgb_model) %>%
   as_tibble() %>%
   slice_head(n = 15)
 
@@ -2156,17 +2153,17 @@ LightGBM primenjuje early stopping, tako da nam je neophodan i validacioni skup,
 Kao i kod XGBoost-a, moramo da odaberemo optimalnu stopu učenja (learning_rate) i kompleksnost stabala (num_leaves), pa sprovodimo kros validaciju da bismo pronašli ove parametre.
 
 ```{r}
-dtrain_full_lgb <- lgb.Dataset(data = X_train, label = y_train)
+dtrain_full_lgb = lgb.Dataset(data = X_train, label = y_train)
 
-grid_lgb <- expand.grid(
+grid_lgb = expand.grid(
   learning_rate = c(0.05, 0.1),
   num_leaves = c(31, 63)
 )
 
-lgb_results <- vector("list", nrow(grid_lgb))
+lgb_results = vector("list", nrow(grid_lgb))
 
 for (i in seq_len(nrow(grid_lgb))) {
-  params_i <- list(
+  params_i = list(
     objective = "regression",
     metric = "rmse",
     learning_rate = grid_lgb$learning_rate[i],
@@ -2177,7 +2174,7 @@ for (i in seq_len(nrow(grid_lgb))) {
   )
 
   set.seed(123)
-  cv_i <- lgb.cv(
+  cv_i = lgb.cv(
     params = params_i,
     data = dtrain_full_lgb,
     nrounds = 2000,
@@ -2186,7 +2183,7 @@ for (i in seq_len(nrow(grid_lgb))) {
     verbose = -1
   )
 
-  lgb_results[[i]] <- tibble(
+  lgb_results[[i]] = tibble(
     learning_rate = grid_lgb$learning_rate[i],
     num_leaves = grid_lgb$num_leaves[i],
     best_iter = cv_i$best_iter,
@@ -2194,12 +2191,12 @@ for (i in seq_len(nrow(grid_lgb))) {
   )
 }
 
-lgb_results_df <- bind_rows(lgb_results) %>% arrange(best_score)
+lgb_results_df = bind_rows(lgb_results) %>% arrange(best_score)
 lgb_results_df
 
-best_lgb <- lgb_results_df %>% slice(1)
+best_lgb = lgb_results_df %>% slice(1)
 
-lgb_params <- list(
+lgb_params = list(
   objective = "regression",
   metric = "rmse",
   learning_rate = best_lgb$learning_rate,
@@ -2210,7 +2207,7 @@ lgb_params <- list(
 )
 
 set.seed(123)
-lgb_model <- lgb.train(
+lgb_model = lgb.train(
   params = lgb_params,
   data = dtrain_full_lgb,
   nrounds = best_lgb$best_iter,
@@ -2219,15 +2216,15 @@ lgb_model <- lgb.train(
 ```
 
 ```{r}
-lgb_pred <- predict(lgb_model, X_test)
+lgb_pred = predict(lgb_model, X_test)
 
-lgb_eval <- eval_metrics(y_test, lgb_pred) %>% mutate(Model = "LightGBM")
+lgb_eval = eval_metrics(y_test, lgb_pred) %>% mutate(Model = "LightGBM")
 lgb_eval
 ```
 LightGBM, nakon pretraživanja hiperparametara (learning_rate, num_leaves) uz k-fold unakrsnu validaciju, postiže rezultat malo bolji od XGBoost-a, ali i dalje malo slabiji od Random Forest-a.
 
 ```{r}
-lgb_imp <- lgb.importance(lgb_model) %>%
+lgb_imp = lgb.importance(lgb_model) %>%
   as_tibble() %>%
   slice_head(n = 15)
 
@@ -2243,7 +2240,7 @@ Analiza važnosti prediktora pokazuje identičan obrazac kao kod prethodna dva m
 ### Poređenje modela
 
 ```{r}
-rezultati_modela <- bind_rows(rf_eval, xgb_eval, lgb_eval) %>%
+rezultati_modela = bind_rows(rf_eval, xgb_eval, lgb_eval) %>%
   select(Model, RMSE_log, MAE_log, R2_log) %>%
   arrange(RMSE_log)
 
