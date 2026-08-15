@@ -109,6 +109,14 @@ Spisak kolona koje skup sadrži i kratak opis:
 
 28. Stream – Broj stream-ova pesme na Spotify-u.
 
+Pored toga, pogledaćemo i prvih nekoliko redova, kako bismo imali bolji u podatke sa kojima radimo.
+
+```{r}
+head(data)
+```
+
+Prilikom rada sa ovim podacima, odlučili smo da ne odaberemo direktnu jednu ciljnu promenljivu, kako u ovom skupu podataka imamo 2 promenljive koje bi bile zanimljive za analizu onog što nas zanima, odnosno popularnosti pesama, a to su Views i Stream. Ideja je da odluku o ciljnoj promenljivoj koju predviđamo donesemo tek nakon detaljnijih analiza samih podataka.
+
 Da bismo lakše radili sa podacima, i da bi sami nazivi kolona bili usklađeni, postavićemo tako da svaka kolona ima naziv sa početnim velikim slovom.
 
 ```{r}
@@ -119,7 +127,7 @@ names(data) = paste0(
 
 names(data)
 ```
-
+Nakon ove transformacije sve kolone imaju konzistentan naziv.
 
 # Eksplorativna analiza podataka (EDA)
 
@@ -159,7 +167,7 @@ shapiro_boot = function(data, group_col, value_col) {
 Kako bismo adekvatno analizirali uticaj različitih promenljivih na potencijalne ciljne promenljive, trebalo bi odraditi i pojedinačnu odnosno univarijantnu analizu kolona kako bismo mogli da uočimo potencijalne obrasce u podacima, anomalije i ekstremne vrednosti. Promenljive koje ćemo analizirati u okviru univarijantne analize su:
 
 - **Potencijalne ciljne promenljive** - Stream (broj stream-ova na Spotify-u) i Views (broj pregleda na Youtube spotu pesme)
-- **Audio karakteristike pesme** - kolone koje opisuju samu pesmu i njene zvučne karakteristike u obliku brojnih vrednosti - Danceability, Energy, Loudness, Speechiness, Acousticness, Instrumentalness, Liveness, Valence, Tempo
+- **Audio karakteristike pesme** - kolone koje opisuju samu pesmu i njene zvučne karakteristike u obliku brojnih vrednosti - Danceability, Energy, Loudness, Speechiness, Acousticness, Instrumentalness, Liveness, Valence, Tempo, Duration_ms
 - **Reakcije publike na YouTube-u** - kolone koje prikazuju samu reakciju publike na pesmu na YouTube-u - Likes, Comments
 - **Kategorije sadržaja** - podaci o tome da li je sadržaj licenciran i objavljen na zvaničnom YouTube kanalu - Licensed, Official_video, da li je pesma objavljena u okviru albuma ili singla (Album)
 - **Izvođač** - podaci o tome ko je izvođač pesme (Artist), kao i na kom Youtube kanalu je objavljena određena pesma (Channel), kao i o tome na kom albumu je objavljena pesma (Album)
@@ -171,10 +179,10 @@ Stream je potencijalna ciljna promenljiva, i prvo ćemo proveriti njenu raspodel
 ```{r}
 summary(data$Stream)
 ```
-
 ```{r}
 sd(data$Stream, na.rm = TRUE)
 ```
+Iz ove analize promenljive možemo videti da se u okviru kolone stream nalazi preko 500 nedostajućih vrednosti, kao i da je standardna devijacija izuzetno visoka, pa već možemo da naslutimo da će ova kolona imati neki oblik asimetrije.
 
 ```{r}
 ggplot(data, aes(x = Stream)) +
@@ -183,7 +191,7 @@ ggplot(data, aes(x = Stream)) +
   theme_minimal()
 ```
 
-Analizom histograma može se uočiti izražena desna asimetrija u okviru promenljive Stream, što znači da velika količina pesama ima relativno mali broj stream-ova, dok mali broj veoma pesama dostiže vrednosti od preko milijardu stream-ova. Iako je ova pojava veoma izražena u okviru dijagrama, da bismo bili sigurni u asimetričnu distribuciju promenljive, pokušaćemo i numerički da potvrdimo desnu asimetričnost.
+Analizom histograma može se uočiti izražena desna asimetrija u okviru promenljive Stream, što znači da velika količina pesama ima relativno mali ili srednji broj stream-ova, dok određeni broj pesama dostiže vrednosti od preko milijardu stream-ova. Iako je ova pojava veoma izražena u okviru dijagrama, da bismo bili sigurni u asimetričnu distribuciju promenljive, pokušaćemo i numerički da potvrdimo desnu asimetričnost.
 
 Da bismo sa sigurnošću potvrdili asimetričnost, koristimo meru asimetrije (skew) i meru spljoštenosti ili ekcesa (kurtosis). **Mera asimetrije** nam ukazuje u kojoj meri je neki raspored asimetričan, pri čemu ako je:
 
@@ -261,7 +269,7 @@ ggplot(data, aes(x = log(Views))) +
 
 Nakon logaritamske transformacije, kao i kod Stream promenljive, distribucija je bliža normalnoj.
 
-### Najpopularnije pesme
+### Najpopularnije pesme po Stream
 
 Korisno je pogledati koje su konkretno pesme na vrhu liste po Stream-u, kako bismo sagledali neke osnovne osobine najslušanijih pesama, kao i kako ove pesme stoje sa vrednostima za Views, što ćemo izvršiti pregledom top 15 pesama na listi.
 
@@ -275,10 +283,10 @@ Vrednosti Views u top 15 pesama generalno prate visok Stream, uz izuzetak jedne 
 
 ### Audio karakteristike
 
-Kako bismo lakše pregledali karakteristike kolona koje predstavljaju audio karakteristike, pregledaćemo ih kolektivno, jer ove kolone (Danceability, Energy, Loudness, Speechiness, Acousticness, Instrumentalness, Liveness, Valence, Tempo, Duration_ms) predstavljaju numeričke promenljive slične prirode jer opisuju zvučne karakteristike pesme.
+Kako bismo lakše pregledali karakteristike kolona koje predstavljaju audio karakteristike, pregledaćemo ih kolektivno, jer ove kolone (Danceability, Energy, Loudness, Speechiness, Acousticness, Instrumentalness, Liveness, Valence, Tempo, Duration_ms) predstavljaju numeričke promenljive slične prirode jer opisuju zvučne karakteristike pesme. Na istom dijagramu ćemo pregledati kolone koje imaju vrednosti u opsegu 0-1, a zatim ćemo posebno pregledati Duration_ms, Loudness i Tempo, jer su u drugačijem opsegu.
 
 ```{r}
-audio_cols = c("Danceability", "Energy", "Loudness", "Speechiness","Acousticness", "Instrumentalness", "Liveness", "Valence", "Tempo", "Duration_ms")
+audio_cols = c("Danceability", "Energy", "Speechiness","Acousticness", "Instrumentalness", "Liveness", "Valence")
 
 data %>%
   select(all_of(audio_cols)) %>%
@@ -292,13 +300,38 @@ data %>%
 
 Kolone **Acousticness, Instrumentalness, Speechiness i Liveness** pokazuju izraženu desnu asimetričnost, sa velikom koncentracijom vrednosti u blizini nule, što je očekivano u odnosu na domensko znanje koje imamo o ovim karakteristikama, kako popularne pesme često nisu snimljene uživo (nizak Liveness), nisu samo instrumentalne, već imaju i neki oblik pevanja preko (nizak Instrumentalness) i slično. 
 
-Kolona **Loudness** pokazuje levu asimetriju, sa koncentracijom vrednosti blizu maksimuma, koji iznosi 0db.
+Za kolone čiji se opseg kreće od 0 do 1, nema preteranog smisla raditi logaritamsku transformaciju, tako da bi eventualno imale smisla transformacije feature engineering-om kao što je uvođenje binarne promenljive koja predstavlja da li pesma ima ili nema određenu osobinu.
 
-Kolone **Danceability, Energy, Valence i Tempo** imaju raspodele koje su najbliže normalnoj.
+Kolone **Danceability, Energy, Valence** imaju raspodele koje su najbliže normalnoj.
+
+```{r}
+data %>%
+  ggplot(aes(x = Tempo)) +
+  geom_histogram(bins = 30, fill = "steelblue", color = "white") +
+  theme_minimal() +
+  labs(title = "Distribucija tempa", x = "Tempo (BPM)", y = "Broj")
+```
+Kolone Tempo se meri u BPM (Beats per Minute) i ima raspodelu koja je blizu normalnoj, bez nekih izraženih neravnomernosti.
+
+```{r}
+data %>%
+  mutate(Duration_min = Duration_ms / 60000) %>%
+  ggplot(aes(x = Duration_min)) +
+  geom_histogram(bins = 30, fill = "steelblue", color = "white") +
+  theme_minimal() +
+  labs(title = "Distribucija trajanja pesama", x = "Trajanje (minuti)", y = "Broj")
+```
 
 Kolona **Duration_ms** pokazuje izraženu desnu asimetriju, pa bi ovde bi log transformacija imala smisla.
 
-Za kolone čiji se opseg kreće od 0 do 1, nema preteranog smisla raditi logaritamsku transformaciju, tako da bi eventualno imale smisla transformacije feature engineering-om kao što je uvođenje binarne promenljive koja predstavlja da li pesma ima ili nema određenu osobinu.
+```{r}
+data %>%
+  ggplot(aes(x = Loudness)) +
+  geom_histogram(bins = 30, fill = "seagreen", color = "white") +
+  theme_minimal() +
+  labs(title = "Distribucija jačine zvuka", x = "Loudness (dB)", y = "Broj")
+```
+Kolona **Loudness** pokazuje levu asimetriju, sa koncentracijom vrednosti blizu maksimuma, koji iznosi 0db, pa bi ovde potencijalno imati smisla odraditi logaritamsku transformaciju, ukoliko kolonu koristimo kao prediktor.
 
 ### Reakcije publike na YouTube-u
 
@@ -369,6 +402,7 @@ data %>%
   theme_minimal() +
   labs(title = "Broj pesama po kanalu", x = "Broj pesama", y = "Broj kanala")
 ```
+
 S druge strane, distribucija broje pesma je desno asimetrična,verovatno jer neki kanali pripadaju isključivo jednom umetniku, a neki kanali su veći distributeri pa imaju mnogo više objavljenih spotova, što možemo proveriti ukoliko pogledamo top 5 kanala sa najviše pesama.
 
 ```{r}
@@ -385,6 +419,7 @@ ggplot(top_channels, aes(x = fct_reorder(Channel, n), y = n)) +
   theme_minimal(base_size = 13) +
   labs(title = "Top 5 kanala po broju pesama", x = "Kanal", y = "Broj pesama")
 ```
+
 Na barplot-u je naša inicijalna tvrdnja i potvrđena, kako su ovi kanali neke veće kompanije, a ne pojedinačni izvođači.
 
 ```{r}
@@ -395,11 +430,12 @@ channel_sizes = data %>%
 summary(channel_sizes$n)
 mean(channel_sizes$n == 1)
 ```
-Na osnovu činjenice da više od 50% kanala imaju samo jednu pesmu, možemo otprilike da zaključimo da ova kolona neće biti pogodna za transformaciju i korišćenje u modelima, ali to možemo proveriti u odnosu na Views.
+
+Na osnovu činjenice da više od 50% kanala imaju samo jednu pesmu, možemo otprilike da zaključimo da ova kolona neće biti pogodna za transformaciju i korišćenje u modelima, čak ni ukoliko koristimo target ili frequency encoding, ali to možemo proveriti u odnosu na Views.
 
 ## Bivarijantna analiza - Stream
 
-Bivarijantna analiza predstavlja ispitivanje odnosa između dve promenljive sa ciljem utvrđivanja postojanja, jačine i pravca njihove povezanosti. Kako bismo odlučili koju promenljivu predviđamo neophodno je da odradimo bivarijantnu analizu, odnosno odnos različitih promenljivih i potencijalnih ciljnih promenljivih, pri čemu će se u okviru ovog dela sagledavati kolone pregledane u univarijantnoj analizi, kao i određene kategorijske promenljive, poput izvođača pesme, u odnosu na kolonu *Stream*.
+Bivarijantna analiza predstavlja ispitivanje odnosa između dve promenljive sa ciljem utvrđivanja postojanja, jačine i pravca njihove povezanosti. Kako bismo odlučili koju promenljivu predviđamo neophodno je da odradimo bivarijantnu analizu, odnosno odnos različitih promenljivih i potencijalnih ciljnih promenljivih, pri čemu će se u okviru ovog dela sagledate neki numeričke kolone pregledane u univarijantnoj analizi, kao i određene kategorijske promenljive, poput izvođača pesme, u odnosu na kolonu *Stream*.
 
 ### Artist
 
@@ -944,7 +980,7 @@ Kod Stream-a je situacija drugačija upravo zato što je Artist jače korelisan 
 
 Pored toga, skup podataka je pre svega organizovan oko pesama na Spotify-u, dok su YouTube podaci dodatak spojen preko postojanja zvaničnog spota. Stream je izvorna mera uspeha pesme na platformi oko koje je skup organizovan, dok je Views mera uspeha konkretnog video zapisa koji prati pesmu, a ne nužno i same pesme, pa taj video može biti lyrics video, remix, cover, ili uopšte ne postojati.
 
-Na osnovu ovih argumenata, odlučili smo da koristimo Stream kao ciljnu promenljivu, dok ćemo Views koristiti kao prediktor u budućem radu.
+Na osnovu ovih argumenata, odlučili smo da koristimo **Stream kao ciljnu promenljivu**, dok ćemo Views koristiti kao prediktor u budućem radu.
 
 # Čišćenje podataka
 
@@ -977,6 +1013,7 @@ data %>%
   ungroup() %>%
   arrange(Artist, Track)
 ```
+
 Kao što možemo videti, nema pesama koje se ponavljaju više puta za više umetnika, već se pesme ponavljaju u različitim izdanjima, što nama neće uticati na modele, osim ako pesma u različitim izdanjima ima iste audio karakteristike a različite stream-ove, to bi moglo da nam poremeti modele.
 
 ```{r}
@@ -1054,7 +1091,7 @@ data %>%
   head(10)
 ```
 
-Najkraće pesme u skupu uglavnom predstavljaju kratke pesme za uspavljivanje beba, i najkraće pesme su oko pola minuta, što je na osnovu domenskog znanja sasvim moguće. Najduže pesme su zapravo kompilacije, što opet ima smisla u odnosu na domensko znanje.
+Najkraće pesme u skupu uglavnom predstavljaju kratke pesme za uspavljivanje beba, i traju oko pola minuta, što je na osnovu domenskog znanja sasvim moguće. Najduže pesme su zapravo kompilacije, što opet ima smisla u odnosu na domensko znanje.
 
 ### Audio karakteristike
 
@@ -1172,16 +1209,14 @@ Da bismo shvatili uzrok ovih nedostajućih vrednosti, proverićemo preklapanja, 
 
 
 ```{r}
-yt_cols = c("Views", "Likes", "Comments", "Url_youtube", 
-               "Title", "Channel", "Description", 
-               "Licensed", "Official_video")
+yt_cols = c("Views", "Likes", "Comments", "Url_youtube", "Title", "Channel", "Description", "Licensed", "Official_video")
 
 data %>% filter(if_all(all_of(yt_cols), is.na)) %>% nrow()
 ```
 
 Nakon provere možemo da zaključimo da zaista postoji 470 redova gde nema nijednog podatka o Youtube videu.
 
-Obzirom da su ovo podaci čija se prediktivna moć kasnije može koristiti, a nema smisla da popunjavamo sve ove kolone nekim vrednostima, dodaćemo indikatorsku kolonu koja će ukazivati na to da li postoji Youtube video, što ćemo kasnije i moći da iskoristimo prilikom kreiranja modela, a u numeričke kolone upisaćemo 0. U kolone koje kategorijskog tipa, upisaćemo tekstualne vrednosti koje ukazuje na to da video ne postoji, kako ćemo svakako prilikom korišćenja ovakvih kolona koristiti i novu, Has_youtube kolonu.
+Obzirom da su ovo podaci čija se prediktivna moć kasnije može koristiti, a nema smisla da popunjavamo sve ove kolone nekim vrednostima, dodaćemo indikatorsku kolonu koja će ukazivati na to da li postoji Youtube video, što ćemo kasnije i moći da iskoristimo prilikom kreiranja nelinearnih modela, a u numeričke kolone upisaćemo 0. U kolone koje kategorijskog tipa, upisaćemo tekstualne vrednosti koje ukazuje na to da video ne postoji, kako ćemo svakako prilikom korišćenja ovakvih kolona koristiti i novu, **Has_youtube** kolonu.
 
 
 ```{r}
@@ -1291,7 +1326,7 @@ uporedi_metode_imputacije = function(data, target_col, seed = 123) {
     pull(pred)
 
   tibble(
-    metod = c("Medijana po Views", "Globalna medijana", "Regresija na log(Views)", "Medijana po izvođaču"),
+    metod = c("Medijana po Views grupama", "Globalna medijana", "Regresija na log(Views)", "Medijana po izvođaču"),
     MAE_log = c(
       mean(abs(log1p(pred_decile) - log1p(actual))),
       mean(abs(log1p(pred_globalna) - log1p(actual))),
@@ -1300,7 +1335,11 @@ uporedi_metode_imputacije = function(data, target_col, seed = 123) {
     )
   ) %>% arrange(MAE_log)
 }
+```
 
+Nakon kreiranja funkcije za proveru najbolje metode, možemo da testiramo na kolonama.
+
+```{r}
 uporedi_metode_imputacije(train, "Likes")
 ```
 
@@ -1308,7 +1347,7 @@ uporedi_metode_imputacije(train, "Likes")
 uporedi_metode_imputacije(train, "Comments")
 ```
 
-Za obe kolone kao najbolja metoda pokazala se regresija na osnovu views, tako da ćemo koristiti tu metodu. Sada je bitno da model treniramo samo na trening skupu, a zatim isti model primenimo i na trening i na test skup, kako test skup ni u jednom trenutku ne bi učestovao u određivanju koeficijenata regresije.
+Za obe kolone kao najbolja metoda pokazala se regresija na osnovu views, tako da ćemo koristiti tu metodu. Sada je bitno da model treniramo samo na trening skupu, a zatim isti model primenimo i na trening i na test skup.
 
 ```{r}
 fit_likes_comments_model = function(train_data, target_col) {
@@ -1460,7 +1499,6 @@ test = primeni_imputaciju_stream(test)
 sum(is.na(train$Stream))
 sum(is.na(test$Stream))
 ```
-
 Nakon ovih imputacija, popunili smo i Streams kolonu i u trening i u test skupu, tako da smo popunili sve nedostajuće vrednosti, što bi trebalo da bude potvrđeno i sledećim kodom.
 
 ```{r}
@@ -1519,6 +1557,8 @@ Zbog toga se opredeljujemo za **leave-one-out (LOO) median encoding**, pri čemu
 
 Sam princip izostavljanja jedne pesme rešava curenje na nivou pojedinačnog reda, ali ne i na nivou trening i test granice, ako bismo LOO medijanu računali na celom skupu, Stream test pesama bi i dalje ulazio u izračunavanje feature-a za trening pesme istog izvođača (i obrnuto), jer LOO samo izuzima trenutni red, ne i sve redove van trening skupa. Zato LOO medijanu računamo isključivo unutar trening skupa, dok test skup dobija medijanu Stream-ova tog izvođača, računat isključivo na trening podacima.
 
+Pored osnovne logike imputacije, uveden je i fallback mehanizam, pa ukoliko za dati red ne postoji odgovarajuća medijana, koristi se globalna medijana izračunata na train skupu. Ovo obezbeđuje da nijedan red ne ostane bez vrednosti. Ovo naravno donosi i određene probleme, kako se može dogoditi da Artist ima samo jednu pesmu i da se nalazi u test skupu, ili da ima više pesama ali nijednu u trening skupu, međutim, trenutno nemamo način da razrešimo ovaj problem, jer je ovo ograničenje target encoding-a.
+
 ```{r}
 loo_medijana = function(x) {
   n = length(x)
@@ -1552,7 +1592,7 @@ sum(is.na(test$Artist_LOO_stream))
 ```{r}
 cor.test(train$Artist_LOO_stream, train$Stream, method = "spearman")
 ```
-Spearmanova korelacija, na trening skupu, potvrđuje umerenu do jaku pozitivnu vezu između dodate kolone i Stream-a, što znači da je ova kolona definitivno kandidat za prediktor.
+Spearmanova korelacija, na trening skupu, potvrđuje umerenu do jaku pozitivnu vezu između dodate kolone i Stream-a, što znači da je ova kolona definitivno dobar kandidat za prediktor.
 
 ```{r}
 train %>%
@@ -1562,6 +1602,9 @@ train %>%
   theme_minimal() +
   labs(title = "Stream naspram Artist (trening skup)", x = "log(Artist_LOO_stream + 1)", y = "log(Stream + 1)")
 ```
+Grafik potvrđuje umerenu do jaku pozitivnu vezu između Artist_LOO_stream i Stream-a, uočenu i Spearman testom. Veza nije potpuno linearna, jer je kriva blago konkavna. Primetno je i znatno rasipanje tačaka oko krive, posebno u srednjem delu opsega, što pokazuje da istorijska popularnost izvođača objašnjava samo deo varijacije u broju stream-ova pojedinačne pesme.
+
+Uprkos svim nedostacima koje ovakav način enkodiranja kategorije ima, ovakav način je jedini da nekako pretvorimo izvođača u mogući prediktor, jer je label encoding nepovoljan za linearnu regresiju, a one-hot encoding bi doveo do uvođenja previše kolona. U ovoj situaciji ćemo ovu kolonu koristiti kao prediktor, posebno jer je i iz domenskog znanja možemo da zaključimo da je ovo faktor koji će veoma uticati na Stream-ove, a to su pokazali i testovi, za razliku od ostatka kvantifikovanih podataka vezanih za samu pesmu, koji za sada nisu pokazali idealne rezultate.
 
 ## Engagement rate (Likes, Comments)
 
@@ -1600,7 +1643,12 @@ Korelacija sa Views-om je daleko manja, tako da se ove kolone, ukoliko bude bilo
 
 ## Mood kvadrant (Valence x Energy)
 
-Nijedna audio karakteristika pojedinačno ne prelazi korelaciju od |0.14| sa Stream-om, što nam već ukazuje da to kako pesma zvuči ima slab uticaj na njenu popularnost. Međutim, umesto da posmatramo karakteristike izolovano, pokušaćemo da ih kombinujemo na način koji ima muzički smisao, za slučaj da kombinacija nosi jači signal od pojedinačnih kolona. Valence i Energy su dve karakteristike koje se koriste za opisivanje muzičkog raspoloženja. Energy predstavlja koliko pesma deluje mirno ili intenzivno, dok Valence opisuje koliko deluje pozitivno ili negativno. Njihovim kombinovanjem mogu se formirati četiri kvadranta raspoloženja: visoka vrednost Energy i visoka Valence odgovaraju srećnom i uzbudljivom raspoloženju, visoka Energy i niska Valence napetom ili ljutom, niska Energy i visoka Valence mirnom i zadovoljavajućem, a niska Energy i niska Valence tužnom raspoloženju (Mix Analyzer, 2026). :contentReference[oaicite:0]{index=0} 
+Nijedna audio karakteristika pojedinačno ne prelazi korelaciju od |0.14| sa Stream-om, što nam već ukazuje da to kako pesma zvuči ima slab uticaj na njenu popularnost. Međutim, umesto da posmatramo karakteristike izolovano, pokušaćemo da ih kombinujemo na način koji ima muzički smisao, za slučaj da kombinacija nosi jači signal od pojedinačnih kolona. Valence i Energy su dve karakteristike koje se koriste za opisivanje muzičkog raspoloženja. Energy predstavlja koliko pesma deluje mirno ili intenzivno, dok Valence opisuje koliko deluje pozitivno ili negativno. Njihovim kombinovanjem mogu se formirati četiri kvadranta raspoloženja: visoka vrednost Energy i visoka Valence odgovaraju srećnom i uzbudljivom raspoloženju, visoka Energy i niska Valence napetom ili ljutom, niska Energy i visoka Valence mirnom i zadovoljavajućem, a niska Energy i niska Valence tužnom raspoloženju.
+
+*Izvor: Mood and Emotion Analysis -  [^2]*
+
+[^2]: https://mixanalytic.com/guides/mood-analysis
+
 
 
 ```{r}
@@ -1627,7 +1675,13 @@ Kruskal-Wallis effect size za Mood_quadrant spada u kategoriju zanemarljivo malo
 
 ## Danceability i Energy (Party index)
 
-Pošto kombinacija Valence i Energy (Mood_quadrant) pokazuje zanemarljiv efekat, probaćemo drugu kombinaciju audio karakteristika koja ima smisla iz domenskog znanja. Danceability i Energy zajedno bi trebalo da opisuju koliko je pesma zabavna i energična. Umesto kategorijske podele, pravimo feature množenjem dve vrednosti, kako bismo zadržali kontinualnu prirodu podataka.
+Pošto kombinacija Valence i Energy (Mood_quadrant) pokazuje zanemarljiv efekat, probaćemo drugu kombinaciju audio karakteristika koja ima smisla iz domenskog znanja. Danceability i Energy zajedno bi trebalo da opisuju koliko je pesma zabavna i energična. Umesto kategorijske podele, pravimo feature množenjem dve vrednosti, kako bismo zadržali kontinualnu prirodu podataka. 
+
+*Izvor: Spotify developer documentation - Spotify for Developers [^3]*
+
+[^3]: https://developer.spotify.com/documentation/web-api/reference/get-audio-features
+
+
 
 ```{r}
 train = train %>% mutate(Party_index = Danceability * Energy)
@@ -1958,8 +2012,7 @@ Random Forest je bagging pristup (svako stablo se trenira nad bootstrap uzorkom)
 Formula je ista za sva tri modela.
 
 ```{r}
-formula_ml = as.formula(
-  log1p(Stream) ~ Album_type + Loudness + Acousticness + Instrumentalness +
+formula_ml = as.formula(log1p(Stream) ~ Album_type + Loudness + Acousticness + Instrumentalness +
     Views + Artist_LOO_stream + Likes_rate + Comments_rate + Energy + Duration_ms,
     + Tempo + Liveness + Danceability + Valence + Party_index + Licensed_video_combo)
 ```
@@ -2009,8 +2062,6 @@ eval_metrics = function(actual_log, pred_log) {
 
 Random Forest je algoritam mašinskog učenja koji koristi veliki broj stabala odlučivanja kako bi pravio bolje predikcije. Svako stablo posmatra različite, nasumično izabrane delove podataka, a njihovi rezultati se kombinuju. Zbog toga se Random Forest smatra tehnikom ansambl učenja (ensemble learning), u kome više modela radi zajedno, što može da pomogne u povećanju tačnosti i smanjenju grešaka.
 
-Random Forest nema early stopping, pa možemo da ga treniramo direktno nad celim skupom za trening.
-
 ```{r}
 rf_model = ranger(
   formula_ml,
@@ -2030,6 +2081,7 @@ rf_pred_values = rf_pred$predictions
 rf_eval = eval_metrics(y_test, rf_pred_values) %>% mutate(Model = "Random Forest")
 rf_eval
 ```
+
 Random Forest daje bolje perfomanse od linearne regresije, po svim metrikama, jer je model uspeo da bolje uhvati odnose između prediktora i ciljne promenljive, što nam ukazuje na to da postoje nelinearni odnosi u podacima. 
 
 
@@ -2050,6 +2102,7 @@ ggplot(rf_imp, aes(x = reorder(Feature, Importance), y = Importance)) +
   theme_minimal() +
   labs(title = "Random Forest - važnost prediktora (top 15)", x = "", y = "Permutaciona važnost")
 ```
+
 Random forest pokazuje ono što se moglo i zaključiti na osnovu bivarijatne analize, a to je da su Views i Artist_LOO_Stream najbolji prediktori, dok je ovaj model uzeo u obzir i neke prediktore za koje je koeficijent korelacije bio daleko manji, kao što su Album_type ili Loudness. 
 
 ### XGBoost
@@ -2058,7 +2111,7 @@ XGBoost (eXtreme Gradient Boosting) je optimizovani algoritam gradijentnog boost
 
 XGBoost primenjuje early stopping, tako da nam je potreban i validacioni skup, jer se treniranje automatski zaustavlja kada performanse na validacionom skupu prestanu da poboljšavaju.
 
-Pored broja iteracija, model zavisi i od hiperparametara poput maksimalne dubine stabla (max_depth) i stope učenja (eta), koji se ne mogu odrediti automatski, pa ćemo sprovesti kros validaciju da bismo pronašli ove parametre.
+Pored broja iteracija, model zavisi i od hiperparametara poput maksimalne dubine stabla (max_depth) i stope učenja (eta), koji se ne mogu odrediti automatski, pa ćemo sprovesti cross validation da bismo pronašli ove parametre.
 
 ```{r}
 dtrain_full = xgb.DMatrix(data = X_train, label = y_train)
@@ -2256,6 +2309,7 @@ rezultati_modela %>%
   theme_minimal() +
   labs(title = "Poređenje naprednih modela (log(Stream) skala)", x = "", y = "Greška")
 ```
-Sva tri modela postižu sličan nivo tačnosti, pri čemu treba imati u vidu da su ovo sada rezultati nad zaista neviđenim test skupom - podela na trening i test je urađena pre bilo kakve imputacije ili enkodiranja koje koristi Stream, tako da ove metrike (za razliku od ranije verzije analize) ne sadrže optimizam koji dolazi od curenja podataka.
 
-Važno je napomenuti da su sve prikazane metrike izračunate na log-transformisanoj skali ciljne promenljive, a ne na originalnoj skali stream-ova. Ovo je neophodno jer Stream ima veoma desno asimetričnu raspodelu sa ekstremnim vrednostima, ali se metrike ne mogu direktno protumačiti.
+Sva tri modela postižu sličan nivo tačnosti, pri čemu bi da su sve prikazane metrike izračunate na log-transformisanoj skali ciljne promenljive, a ne na originalnoj skali stream-ova.  Ovo je neophodno jer Stream ima veoma desno asimetričnu raspodelu sa ekstremnim vrednostima, ali se metrike ne mogu direktno protumačiti, ali se svakako mogu uporediti.
+
+
