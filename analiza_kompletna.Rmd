@@ -3,9 +3,9 @@ title: "Spotify and Youtube"
 author: "Katarina Dimitrijević, Sandra Miladinović"
 date: "2026-08-11"
 output:
-  word_document: default
-  html_document: default
   pdf_document: default
+  html_document: default
+  word_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -1927,14 +1927,6 @@ ncol(train)
 names(train)
 ```
 
-Pored toga, u okviru podataka postoji problem koji će potencijalno nastati u okviru primene linearne regresije, a to će biti Views koji su postavljeni na 0, usled imputacije podataka, kako će ovo verovatno poremetiti linearni model koji ne može da zna da li su ovi podaci zapravo 0 ili ne, uprkos postojanju Has_youtube kolone, tako da ćemo ove redove ipak obrisati, iako je ovo dobar faktor za pregledanje u okviru ensemble modela, kako bi ocene bile fer, tj. kako bi se modeli trenirali i ocenjivali na istim skupovima podataka.
-
-```{r}
-data = data %>% filter(Has_youtube == TRUE)
-data = data %>% select(-Has_youtube)
-```
-
-
 Radimo faktorizaciju kolona za koje je to potrebno.
 
 ```{r}
@@ -2014,7 +2006,7 @@ Formula je ista za sva tri modela.
 ```{r}
 formula_ml = as.formula(log1p(Stream) ~ Album_type + Loudness + Acousticness + Instrumentalness +
     Views + Artist_LOO_stream + Likes_rate + Comments_rate + Energy + Duration_ms,
-    + Tempo + Liveness + Danceability + Valence + Party_index + Licensed_video_combo)
+    + Tempo + Liveness + Danceability + Valence + Party_index + Licensed_video_combo + Has_youtube)
 ```
 
 XGBoost i LightGBM zahtevaju numeričku matricu, pa moramo da kodiramo kategorijske kolone. Pošto train i test dolaze iz dva odvojena fajla, privremeno ćemo ih spojiti da bi matrica imala identične kolone za oba.
@@ -2195,7 +2187,7 @@ ggplot(xgb_imp, aes(x = reorder(Feature, Gain), y = Gain)) +
   theme_minimal() +
   labs(title = "XGBoost - važnost prediktora (top 15)", x = "", y = "Gain")
 ```
-Analiza važnosti prediktora kod XGBoost-a pokazuje obrazac uočen i kod Random Forest-a: Views i Artist_LOO_stream su ubedljivo najuticajniji prediktori, dok ostale varijable doprinose mnogo manje. Ovo sugeriše da je najveći deo prediktivne moći modela vezan za popularnost sadržaja na YouTube-u i istorijski uspeh izvođača, dok audio karakteristike pesme (danceability, energy, tempo i sl.) imaju sporedan, ali ipak statistički primetan uticaj.
+Analiza važnosti prediktora kod XGBoost-a pokazuje obrazac uočen i kod Random Forest-a, odnosno da su Views i Artist_LOO_stream ubedljivo najuticajniji prediktori, dok ostale varijable doprinose mnogo manje. Ovo sugeriše da je najveći deo prediktivne moći modela vezan za popularnost sadržaja na YouTube-u i istorijski uspeh izvođača, dok audio karakteristike pesme (danceability, energy, tempo i sl.) imaju sporedan, ali ipak statistički primetan uticaj.
 
 ### LightGBM
 
