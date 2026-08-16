@@ -41,6 +41,7 @@ library(randomForest)
 library(xgboost)
 library(lightgbm)
 library(ranger)
+library(glmnet)
 
 data = read.csv("Spotify_Youtube.csv", header = T)
 ```
@@ -83,7 +84,7 @@ Spisak kolona koje skup sadrži i kratak opis:
 
 15. Liveness – Mera (0–1) prisustva publike u snimku; visoke vrednosti ukazuju da je pesma snimljena uživo.
 
-16. Valence – Mera (0–1) muzičke "pozitivnosti"; više vrednosti zvuče vedrije, niže turobnije.
+16. Valence – Mera (0–1) muzičke "pozitivnosti"; više vrednosti zvuče vedrije, niže tmurnije.
 
 17. Tempo – Procenjeni tempo pesme u otkucajima u minuti (BPM).
 
@@ -1339,7 +1340,7 @@ test %>% filter(Has_youtube) %>% summarise(NA_Likes = sum(is.na(Likes)), NA_Comm
 
 ### Stream
 
-Za razliku od Likes i Comments, gde su nedostajuće vrednosti postojale isključivo kod redova sa YouTube videom, Stream je nezavisan od postojanja videa na yt. Kod redova bez videa, Views je ranije postavljen na 0, pa bi korišćenje Views kao prediktora tu bilo besmisleno. Zato možemo opet da uporedimo metode ali da podelimo podatke na grupe onih koje imaju i nemaju yt video. Pored toga je i dalje bitno da nastavimo da izračunavanja radimo na osnovu trening skupa, kako ne bi došlo do curenja podataka.
+Za razliku od Likes i Comments, gde su nedostajuće vrednosti postojale isključivo kod redova sa YouTube videom, Stream je nezavisan od postojanja videa na YouTube-u. Kod redova bez videa, Views je ranije postavljen na 0, pa bi korišćenje Views kao prediktora tu bilo besmisleno. Zato možemo opet da uporedimo metode ali da podelimo podatke na grupe onih koje imaju i nemaju YouTube video. Pored toga je i dalje bitno da nastavimo da izračunavanja radimo na osnovu trening skupa, kako ne bi došlo do curenja podataka.
 
 ```{r}
 uporedi_metode = function(poznato, target_col, include_views = FALSE, seed = 123) {
@@ -1947,6 +1948,179 @@ train_ml = uskladi_tipove(train)
 test_ml = uskladi_tipove(test)
 ```
 
+## Linearni modeli
+
+Pre naprednih, nelinearnih modela testiraćemo tri linearna pristupa - običnu linearnu regresiju, Lasso i Ridge regresiju. Za razliku od modela zasnovanih na stablima, linearni modeli su osetljiviji na način na koji je pripremljen YouTube deo podataka.
+
+### Priprema za linearne modele
+
+Kod pesama bez YouTube spota (`Has_youtube == FALSE`), `Views` je ranije postavljen na 0 kao deo standardne dummy variable adjustment tehnike (nedostajuća vrednost popunjena konstantom uz indikatorsku kolonu koja to obeležava). Ovakav pristup je prihvatljiv za modele zasnovane na stablima, koji mogu da izoluju te redove razdvajanjem po `Has_youtube` koloni, ali je Jones (1996) pokazao da dummy variable adjustment daje pristrasne ocene parametara u linearnoj regresiji, čak i kada su podaci MCAR. Zbog toga za linearne modele izbacujemo redove bez YouTube spota, umesto da se oslanjamo na `Has_youtube` indikator da "ispravi" veštačke nule u `Views`. Ovo znači da će naši linearni modeli i Random Forest/XGBoost/LightGBM biti evaluirani na blago različitim test skupovima (linearni modeli na manjem, bez pesama bez YouTube spota), što je svesna metodološka odluka, a ne previd.
+
+Pored toga, `Mood_quadrant` i `Key_factor` gube tip faktora prilikom čuvanja/učitavanja iz CSV-a (postaju tekst, odnosno broj), pa ih ovde vraćamo u faktor, kako i priliči kategorijskim promenljivama bez prirodnog redosleda.
+
+```{r}
+train_lin = train_ml %>%
+  filter(Has_youtube == TRUE) %>%
+  select(-Has_youtube) %>%
+  mutate(
+    Mood_quadrant = factor(Mood_quadrant),
+    Key_factor = factor(Key_factor)
+  )
+
+test_lin = test_ml %>%
+  filter(Has_youtube == TRUE) %>%
+  select(-Has_youtube) %>%
+  mutate(
+    Mood_quadrant = factor(Mood_quadrant),
+    Key_factor = factor(Key_factor)
+  )
+
+nrow(train_lin)
+nrow(test_lin)
+```
+
+### Feature selection
+
+Pre same regresije, radimo formalnu selekciju prediktora, umesto da se oslonimo isključivo na ručni izbor kao u multivarijantnoj analizi. Prvo definišemo pun model, koji uključuje sve preostale kolone koje imaju smisla kao prediktori (izuzev `Artist` i `Track`, koji su sirov tekst i ne mogu direktno da uđu u `lm()`), a zatim ćemo nad njim primeniti stepwise selekciju.
+
+`Views` je, kao i `Stream`, izrazito desno asimetričan, pa ga logaritmujemo (`log1p`) radi linearnijeg odnosa sa ciljnom promenljivom - isto obrazloženje koje je već korišćeno i za sam target i u ranijoj multivarijantnoj analizi (Model B).
+
+Pre fitovanja modela proveravamo i raspodelu nivoa `Licensed_video_combo`, kako bismo znali da li neki nivo ima premalo (ili nimalo) opažanja u `train_lin`.
+
+```{r}
+table(train_lin$Licensed_video_combo)
+```
+
+```{r}
+full_formula = as.formula(
+  log1p(Stream) ~ Album_type + Danceability + Energy + Loudness + Speechiness +
+    Acousticness + Instrumentalness + Liveness + Valence + Tempo + Duration_ms +
+    log1p(Views) + Artist_LOO_stream + Likes_rate + Comments_rate + Mood_quadrant +
+    Party_index + Key_factor + Licensed_video_combo
+)
+
+full_model = lm(full_formula, data = train_lin)
+summary(full_model)
+```
+
+`table()` je pokazao da nivoi `Licensed_unofficial` i `Unknown` nemaju nijedno opažanje u `train_lin` (`Unknown` postoji samo kod pesama bez YouTube spota, koje smo izbacile; `Licensed_unofficial` je u ovom skupu suštinski odsutan). Pre nego što nastavimo, čistimo te neiskorišćene nivoe, kako ne bi pravili prazne kolone u kasnijim koracima (posebno bitno za Lasso/Ridge, gde se koristi eksplicitna design matrica).
+
+```{r}
+train_lin = train_lin %>% mutate(Licensed_video_combo = droplevels(Licensed_video_combo))
+test_lin = test_lin %>% mutate(Licensed_video_combo = factor(as.character(Licensed_video_combo), levels = levels(train_lin$Licensed_video_combo)))
+
+table(train_lin$Licensed_video_combo)
+
+full_model = lm(full_formula, data = train_lin)
+```
+
+### Stepwise selekcija
+
+Nad punim modelom primenjujemo stepwise selekciju u oba smera (`direction = "both"`), zasnovanu na AIC kriterijumu, kako bismo dobili redukovan, opravdan skup prediktora za linearnu regresiju.
+
+```{r}
+step_model = step(full_model, direction = "both", trace = 0)
+summary(step_model)
+```
+
+```{r}
+formula(step_model)
+```
+
+Stepwise selekcija je izbacila `Danceability`, `Instrumentalness`, `Tempo`, `Mood_quadrant` i `Key_factor` - sve prediktore koji su se i u ranijoj bivarijantnoj analizi pokazali kao zanemarljivi (Kruskal-Wallis efekat blizu nule). Adjusted R² je ostao identičan (0.4829) uz jednostavniji model, što je i cilj stepwise selekcije.
+
+### Obična linearna regresija
+
+Model dobijen stepwise selekcijom koristimo kao finalni model obične linearne regresije, i evaluiramo ga na test skupu pomoću MAE, RMSE i R² na log skali (isti format koji ćemo koristiti i za Lasso/Ridge, kao i napredne modele, radi lakšeg poređenja na kraju).
+
+```{r}
+eval_metrics = function(actual_log, pred_log) {
+  rmse_log = sqrt(mean((actual_log - pred_log)^2))
+  mae_log = mean(abs(actual_log - pred_log))
+  r2_log = 1 - sum((actual_log - pred_log)^2) / sum((actual_log - mean(actual_log))^2)
+  tibble(RMSE_log = rmse_log, MAE_log = mae_log, R2_log = r2_log)
+}
+
+y_test_lin = log1p(test_lin$Stream)
+lm_pred = predict(step_model, newdata = test_lin)
+
+lm_eval = eval_metrics(y_test_lin, lm_pred) %>% mutate(Model = "Linearna regresija")
+lm_eval
+```
+
+Obična linearna regresija na test skupu daje R² = 0.481, vrlo blizu R² na treningu (0.483), što znači da model dobro generalizuje i da nema znakova overfitting-a.
+
+### Priprema za Lasso i Ridge regresiju
+
+Za razliku od `lm()`, `glmnet` (koji koristimo za Lasso i Ridge) zahteva eksplicitnu numeričku matricu prediktora, ne formulu direktno, pa kategorijske kolone moramo prvo da kodiramo. Koristimo `full_formula` (svih 18 kandidata za prediktore), a ne redukovanu formulu iz stepwise selekcije, jer je upravo poenta Lasso/Ridge regresije da regularizacija sama proceni koji prediktori doprinose, nezavisno od stepwise rezultata. Kao i kod naprednih modela, train i test privremeno spajamo kako bi matrica imala identične kolone za oba skupa.
+
+```{r}
+n_train_lin = nrow(train_lin)
+data_matrica_lin = bind_rows(train_lin, test_lin)
+
+X_full_lin = model.matrix(full_formula, data = data_matrica_lin)[, -1]
+y_full_lin = log1p(data_matrica_lin$Stream)
+
+X_train_lin = X_full_lin[1:n_train_lin, ]
+X_test_lin = X_full_lin[(n_train_lin + 1):nrow(X_full_lin), ]
+y_train_lin = y_full_lin[1:n_train_lin]
+
+dim(X_train_lin)
+dim(X_test_lin)
+```
+
+### Lasso regresija
+
+Lasso (L1 regularizacija) dodaje kaznu na sumu apsolutnih vrednosti koeficijenata, što neke koeficijente svodi tačno na nulu - Lasso tako sam radi svojevrsnu feature selection, nezavisno od stepwise pristupa iz prethodne sekcije. Parametar `lambda` (jačina regularizacije) biramo unakrsnom validacijom (`cv.glmnet`), tražeći vrednost koja minimizuje grešku.
+
+```{r}
+set.seed(123)
+lasso_cv = cv.glmnet(X_train_lin, y_train_lin, alpha = 1)
+lasso_cv$lambda.min
+
+lasso_model = glmnet(X_train_lin, y_train_lin, alpha = 1, lambda = lasso_cv$lambda.min)
+lasso_pred = as.numeric(predict(lasso_model, newx = X_test_lin))
+
+lasso_eval = eval_metrics(y_test_lin, lasso_pred) %>% mutate(Model = "Lasso regresija")
+lasso_eval
+```
+
+Pogledajmo koje je koeficijente Lasso sveo na nulu, tj. koje je prediktore efektivno izbacio iz modela.
+
+```{r}
+lasso_coef = as.data.frame(as.matrix(coef(lasso_model)))
+names(lasso_coef) = "Coefficient"
+lasso_coef %>%
+  rownames_to_column("Feature") %>%
+  filter(Coefficient == 0)
+```
+
+Lasso daje skoro identičan rezultat kao obična regresija (R² = 0.480 naspram 0.481), uz vrlo blagu regularizaciju - izbačena su samo 4 pojedinačna koeficijenta (`Danceability`, jedan nivo `Mood_quadrant`-a, dva nivoa `Key_factor`-a). Ovo je očekivano ponašanje Lasso-a nad dummy-kodiranim kategorijskim promenljivama - regularizacija deluje na nivou pojedinačnog nivoa faktora, a ne cele promenljive, pa ume da "obriše" samo pojedine kategorije umesto čitave kolone.
+
+### Ridge regresija
+
+Ridge (L2 regularizacija) dodaje kaznu na sumu kvadrata koeficijenata, čime ih smanjuje ka nuli, ali ih (za razliku od Lasso-a) nikad ne svodi tačno na nulu - Ridge zato nije feature selection metoda u užem smislu, već pre svega način da se stabilizuju ocene koeficijenata kod koreliranih prediktora. I ovde `lambda` biramo unakrsnom validacijom.
+
+```{r}
+set.seed(123)
+ridge_cv = cv.glmnet(X_train_lin, y_train_lin, alpha = 0)
+ridge_cv$lambda.min
+
+ridge_model = glmnet(X_train_lin, y_train_lin, alpha = 0, lambda = ridge_cv$lambda.min)
+ridge_pred = as.numeric(predict(ridge_model, newx = X_test_lin))
+
+ridge_eval = eval_metrics(y_test_lin, ridge_pred) %>% mutate(Model = "Ridge regresija")
+ridge_eval
+```
+
+### Poređenje linearnih modela
+
+```{r}
+bind_rows(lm_eval, lasso_eval, ridge_eval)
+```
+
+Sva tri linearna modela daju gotovo identičan rezultat (R² između 0.478 i 0.481). Regularizacija (Lasso, Ridge) ovde ne donosi poboljšanje u odnosu na običnu regresiju, što je i očekivano - VIF provera u multivarijantnoj analizi nije pokazala ozbiljnu multikolinearnost među prediktorima, a broj opažanja (16194) je mnogo veći od broja prediktora (33), pa obična linearna regresija nije u opasnosti od overfitting-a koji bi regularizacija trebalo da ublaži. U sva tri modela `log1p(Views)` i `Artist_LOO_stream` ostaju ubedljivo najjači prediktori. Ostaje da vidimo da li nelinearni modeli, koji automatski hvataju interakcije i nelinearnosti, mogu da nadmaše ovaj rezultat.
+
 ## Napredni modeli mašinskog učenja
 
 Pored linearne regresije, testiraćemo i tri boosting algoritma, kako bismo videli da li nelinearni modeli i interakcije koje oni automatski hvataju donose bolju prediktivnu moć. Svi modeli se evaluiraju na istom test skupu, MAE i RMSE metrikama.
@@ -2240,12 +2414,14 @@ Analiza važnosti prediktora pokazuje identičan obrazac kao kod prethodna dva m
 ### Poređenje modela
 
 ```{r}
-rezultati_modela = bind_rows(rf_eval, xgb_eval, lgb_eval) %>%
+rezultati_modela = bind_rows(lm_eval, lasso_eval, ridge_eval, rf_eval, xgb_eval, lgb_eval) %>%
   select(Model, RMSE_log, MAE_log, R2_log) %>%
   arrange(RMSE_log)
 
 rezultati_modela
 ```
+
+Napomena: linearni modeli (obična regresija, Lasso, Ridge) su evaluirani na `test_lin`, koji ne sadrži pesme bez YouTube spota (videti obrazloženje u sekciji "Priprema za linearne modele"), dok su napredni modeli evaluirani na celom `test_ml`. Test skupovi se zato blago razlikuju po broju redova, što treba imati u vidu pri poređenju.
 
 ```{r}
 rezultati_modela %>%
