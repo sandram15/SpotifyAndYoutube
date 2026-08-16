@@ -128,6 +128,15 @@ Rang-lista top 15 kanala prema Bajesovom proseku u velikoj meri odgovara ranije 
 
 Kako je u okviru univarijantne analize zaključeno da numeričke promenljive (Stream, Views, Likes, Comments) nisu normalno raspodeljene, koristićemo Spearman koeficijent korelacije, jer je otporan na monotone transformacije i outlier-e.
 
+```{r}
+numeric_cols <- c("Stream", "Views", "Likes", "Comments",
+                   "Danceability", "Energy", "Key", "Loudness", "Speechiness",
+                   "Acousticness", "Instrumentalness", "Liveness", "Valence",
+                   "Tempo", "Duration_ms")
+
+corr <- cor(data[, numeric_cols], use = "complete.obs", method = "spearman")
+```
+
 ```{r fig.width=10, fig.height=8}
 corr[lower.tri(corr)] <- NA
 corr.melt <- melt(corr, na.rm = TRUE)
