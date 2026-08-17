@@ -3,9 +3,9 @@ title: "Spotify and Youtube"
 author: "Katarina Dimitrijević, Sandra Miladinović"
 date: "2026-08-11"
 output:
+  word_document: default
   pdf_document: default
   html_document: default
-  word_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -192,6 +192,7 @@ ggplot(data, aes(x = Stream)) +
   labs(title = "Distribucija Stream",  x = "Stream",  y = "Broj pesama") + 
   theme_minimal()
 ```
+
 Analizom histograma može se uočiti izražena desna asimetrija u okviru promenljive Stream, što znači da velika količina pesama ima relativno mali ili srednji broj stream-ova, dok određeni broj pesama dostiže vrednosti od preko milijardu stream-ova. Iako je ova pojava veoma izražena u okviru dijagrama, da bismo bili sigurni u asimetričnu distribuciju promenljive, pokušaćemo i numerički da potvrdimo desnu asimetričnost.
 
 Da bismo sa sigurnošću potvrdili asimetričnost, koristimo meru asimetrije (skew) i meru spljoštenosti ili ekcesa (kurtosis). **Mera asimetrije** nam ukazuje u kojoj meri je neki raspored asimetričan, pri čemu ako je:
@@ -229,6 +230,7 @@ ggplot(data, aes(x = log(Stream))) +
   geom_histogram(bins = 50, fill = "steelblue", color = "white") +
   labs(title = "Distribucija Stream  nakon transformacije", x = "Stream", y = "Broj pesama") + theme_minimal()
 ```
+
 Nakon izvršene logaritamske transformacije, distribucija stream-ova postala je više simetrična i bliža je normalnoj raspodeli, što nam omogućava stabilniju analizu odnosa Stream-a i ostalih promenljivih.
 
 ### Views
@@ -288,6 +290,7 @@ ggplot(top_songs_long, aes(x = Label, y = Vrednost, fill = Metrika)) +
   theme_minimal(base_size = 12) +
   labs(title = "Top 15 pesama po broju stream-ova (Stream naspram Views)", x = "", y = "Broj (milijarde)", fill = "")
 ```
+
 Vrednosti Views u top 15 pesama generalno prate visok Stream, uz izuzetak jedne pesme ("One Dance"), koja ima relativno nizak broj pregleda u poređenju sa ostalim pesmama na listi.
 
 ### Audio karakteristike
@@ -340,6 +343,7 @@ data %>%
   theme_minimal() +
   labs(title = "Distribucija jačine zvuka", x = "Loudness (dB)", y = "Broj")
 ```
+
 Kolona **Loudness** pokazuje levu asimetriju, sa koncentracijom vrednosti blizu maksimuma, koji iznosi 0db, pa bi ovde potencijalno imati smisla odraditi logaritamsku transformaciju, ukoliko kolonu koristimo kao prediktor.
 
 ### Reakcije publike na YouTube-u
@@ -371,6 +375,7 @@ data %>%
   theme_minimal() +
   labs(title = "Distribucije kategorijskih promenljivih", x = "Kategorija", y = "Broj pesama")
 ```
+
 U okviru kategorijskih promenljiva, uočava se određena neravnomerna raspodela kategorija:
 
 - **Album_type** - većina pesama objavljena je u okviru albuma, dok je manji broj objavljen kao singl, a najmanji broj pesama je objavljen kao kompilacija.
@@ -399,6 +404,7 @@ data %>%
   theme_minimal() +
   labs(title = "Broj pesama po izvođaču", x = "Broj pesama", y = "Broj izvođača")
 ```
+
 Histogram jasno pokazuje da većina izvođača ima tačno ili blizu 10 pesama. Ovo ima smisla u odnosu na sam opis skupa, kako je prikupljeno top 10 pesama za svakog izvođača.
 
 ```{r}
@@ -410,6 +416,7 @@ data %>%
   theme_minimal() +
   labs(title = "Broj pesama po kanalu", x = "Broj pesama", y = "Broj kanala")
 ```
+
 S druge strane, distribucija broje pesma je desno asimetrična,verovatno jer neki kanali pripadaju isključivo jednom umetniku, a neki kanali su veći distributeri pa imaju mnogo više objavljenih spotova, što možemo proveriti ukoliko pogledamo top 5 kanala sa najviše pesama.
 
 ```{r}
@@ -426,6 +433,7 @@ ggplot(top_channels, aes(x = fct_reorder(Channel, n), y = n)) +
   theme_minimal(base_size = 13) +
   labs(title = "Top 5 kanala po broju pesama", x = "Kanal", y = "Broj pesama")
 ```
+
 Na barplot-u je naša inicijalna tvrdnja i potvrđena, kako su ovi kanali neke veće kompanije, a ne pojedinačni izvođači.
 
 ```{r}
@@ -463,6 +471,7 @@ top_artists_stream = data %>%
 ggplot(top_artists_stream, aes(x = fct_reorder(Artist, ukupno_stream), y = ukupno_stream)) + geom_col(fill = "steelblue") + scale_y_continuous(labels = label_number(scale = 1e-9, suffix = "B")) + coord_flip() + theme_minimal(base_size = 13) + labs(title = "Top 10 izvođača po ukupnom broju stream-ova", x = "Izvođač", y = "Ukupno stream-ova")
 
 ```
+
 Na vrhu se po broju stream-ova nalaze određeni popularni pevači, što je i očekivano. Zbog prirode skupa gde svaki izvođač ima po 10 pesama, možemo da gledamo zbir stream-ova na ovaj način, u suprotnom bismo morali da gledamo izvođaće po proseku stream-ova, kako ne bi na vrhu bio izvođač sa najvećim brojem pesama. Kako vizuelno ne možemo da proverimo ovu količinu različitih klasa i uticaj na stream, možemo odmah da uradimo statistički test i da saznamo uticaj, iako postoji veliki rizik da će efekat biti precenjen jer imamo puno grupa koje sadrže mali broj pesama.
 
 ```{r}
@@ -593,6 +602,8 @@ wilcox_effsize(Stream ~ Licensed, data = data_licensed)
 Mann-Whitney test pokazuje statistički značajnu razliku između grupa, dok effect size prema rstatix klasifikaciji spada u kategoriju **malog** (*small*) efekta. Ovo dodatno potvrđuje da, iako licenciran sadržaj u proseku ima nešto veći broj stream-ova, ta veza je praktično slaba i Licensed status verovatno neće biti naročito koristan prediktor za Stream.
 
 ### Official_video
+
+Kao kod kolone Licensed, proverićemo raspodela Stream-a po grupa koje se nalaze u okviru ove promenljive (True ili False).
 
 ```{r}
 data_video = data %>% filter(Official_video != "")
@@ -755,7 +766,7 @@ sort(corr["Views", ], decreasing = TRUE)
 
 Analizom heatmape uočavamo da su ubedljivo najjače povezane promenljive sa Views upravo **Likes**  i **Comments**, što je i očekivano obzirom na to da su to mere reakcije publike izmerene na istom YouTube videu. Nešto slabija, ali i dalje jaka veza postoji sa **Stream**, što ukazuje da je popularnost pesme donekle povezana kroz obe platforme.
 
-Sa druge strane, audio karakteristike pesme pokazuju samo slabe veze sa brojem pregleda: najizraženije su **Loudness* i **Duration_ms** , dok su **Energy**, **Danceability** i **Valence** ispod 0.15, a **Instrumentalness** i **Acousticness** pokazuju blagu negativnu vezu. Ovo sugeriše da same zvučne karakteristike pesme imaju veoma ograničen uticaj na broj pregleda, popularnost videa verovatno je više određena faktorima koji nisu direktno obuhvaćeni audio atributima. Korelacija sa **Key** je zanemarljiva, što je i očekivano jer Key predstavlja nominalnu (kategorijsku) promenljivu kodiranu brojevima, pa ovakav oblik poređenja sa njom suštinski nema smisla.
+Sa druge strane, audio karakteristike pesme pokazuju samo slabe veze sa brojem pregleda: najizraženije su **Loudness** i **Duration_ms** , dok su **Energy**, **Danceability** i **Valence** ispod 0.15, a **Instrumentalness** i **Acousticness** pokazuju blagu negativnu vezu. Ovo sugeriše da same zvučne karakteristike pesme imaju veoma ograničen uticaj na broj pregleda, popularnost videa verovatno je više određena faktorima koji nisu direktno obuhvaćeni audio atributima. Korelacija sa **Key** je zanemarljiva, što je i očekivano jer Key predstavlja nominalnu (kategorijsku) promenljivu kodiranu brojevima, pa ovakav oblik poređenja sa njom suštinski nema smisla.
 
 Važno je napomenuti da **Likes, Comments i Stream** bi trebalo oprezno koristiti kao prediktore ukoliko Views postane ciljna promenljiva, reč je o varijablama koje se prikupljaju u istom trenutku i istom kontekstu kao i sam broj pregleda, a ne o karakteristikama poznatim unapred, pa postoji rizik od curenja podataka.
 
@@ -1700,7 +1711,7 @@ tibble(
   Varijansa = summary(pca_model)$importance[2, ]
 ) %>%
   ggplot(aes(x = PC, y = Varijansa)) +
-  geom_col(fill = "#1DB954") +
+  geom_col(fill = "steelblue") +
   geom_text(aes(label = scales::percent(Varijansa, accuracy = 0.1)), vjust = -0.5) +
   theme_minimal() +
   labs(title = "Scree plot - PCA nad Views, Likes, Comments", x = "", y = "Udeo objašnjene varijanse")
@@ -1714,6 +1725,7 @@ Na osnovu ovoga možemo da zaključimo da nam PCA neće doneti merljivu prednost
 
 ```{r}
 train = train %>% select(-PC1_popularnost, -PC2_popularnost, -PC3_popularnost)
+test = test %>% select(-PC1_popularnost, -PC2_popularnost, -PC3_popularnost)
 ```
 
 
@@ -1741,11 +1753,25 @@ add_mood_quadrant = function(df) {
 
 train = add_mood_quadrant(train)
 test = add_mood_quadrant(test)
+```
 
+```{r}
 kruskal_effsize(train, Stream ~ Mood_quadrant)
 ```
 
+
 Kruskal-Wallis effect size za Mood_quadrant spada u kategoriju zanemarljivo malog efekta.
+
+```{r}
+ggplot(train, aes(x = Mood_quadrant, y = log1p(Stream), fill = Mood_quadrant)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.7) +
+  theme_minimal() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 20, hjust = 1)) +
+  labs(title = "Distribucija Stream-a po Mood Quadrant-u (log skala)", x = "", y = "log(Stream + 1)")
+```
+
+Boxplot potvrđuje zanemarljiv Kruskal-Wallis effect size dobijen ranije - medijane sve četiri kategorije Mood_quadrant-a nalaze se na gotovo identičnom nivou, a i sami boxplot-ovi se u velikoj meri preklapaju.
+
 
 ## Danceability i Energy (Party index)
 
@@ -1755,15 +1781,26 @@ Pošto kombinacija Valence i Energy (Mood_quadrant) pokazuje zanemarljiv efekat,
 
 [^3]: https://developer.spotify.com/documentation/web-api/reference/get-audio-features
 
-
 ```{r}
 train = train %>% mutate(Party_index = Danceability * Energy)
 test = test %>% mutate(Party_index = Danceability * Energy)
 
 cor.test(train$Party_index, train$Stream, method = "spearman")
 ```
-
 Party_index ima nešto jaču vezu sa Stream-om nego njegove pojedinačne komponente, ali su i dalje sve vrednosti veoma slabo korelisane.
+
+```{r}
+train %>%
+  ggplot(aes(x = Party_index, y = log1p(Stream))) +
+  geom_point(alpha = 0.15, color = "steelblue") +
+  geom_smooth(method = "loess", color = "red", se = FALSE) +
+  theme_minimal() +
+  labs(title = "Stream naspram Party Index (trening skup)", x = "Party_index (Danceability × Energy)", y = "log(Stream + 1)")
+```
+
+
+Scatter plot potvrđuje ono što je Spearman korelacija već pokazala, vidljiva je izuzetno slaba veza između Party_index i Stream-a. Crvena loess linija je gotovo horizontalna kroz ceo opseg vrednosti, sa jedva primetnim povećanjem u opsegu Party_index vrednosti od 0.2 do 0.5, nakon čega ostaje ravna. 
+
 
 ## Binarna klasifikacija audio karakteristika
 
@@ -1869,6 +1906,15 @@ kruskal_effsize(train, Stream ~ Licensed_video_combo)
 ```
 
 Kombinovana kategorija Licensed_video_combo pokazuje slab efekat na Stream, u skladu sa pojedinačnim efektima Licensed i Official_video iz bivarijantne analize.
+
+```{r}
+ggplot(train, aes(x = Licensed_video_combo, y = log1p(Stream), fill = Licensed_video_combo)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.7) +
+  theme_minimal() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 20, hjust = 1)) +
+  labs(title = "Distribucija Stream-a po Licensed_video_combo (log skala)", x = "", y = "log(Stream + 1)")
+```
+Boxplot pokazuje blage, ali primetne razlike u medijani Stream-a između kategorija, kategorija Licensed_official ima vizuelno najvišu medijanu, dok Unlicensed_unofficial ima najnižu, sa preostale dve kategorije između njih.
 
 # Multivarijantna analiza
 
@@ -2147,6 +2193,15 @@ Nad punim modelom primenjujemo stepwise selekciju u oba smera, zasnovanu na AIC 
 step_model = step(full_model, direction = "both", trace = 0)
 summary(step_model)
 ```
+
+Analizom koeficijenata možemo izvući nekoliko zapažanja:
+
+**Audio karakteristike** su ovde sve statistički značajne, iako nijedna pojedinačno nije prelazila korelaciju od 0.14 sa Stream-om, ali u multivarijantnom modelu, gde se kontrolišu ostali prediktori, čak i slab uticaj može postati statistički merljiv, dok koeficijenti (svi ispod 1) pokazuju da je taj uticaj i dalje praktično mali.
+
+**Artist_LOO_stream** ima naizgled zanemarljiv koeficijent, ali je to posledica velikog raspona same promenljive, kada je on pomnožen sa tipičnom vrednošću, efekat je zapravo jedan od najizraženijih u modelu.
+
+**Comments_rate** pokazuje jak negativan koeficijent (-34.21, p < 0.001), u skladu sa negativnom korelacijom uočenom ranije.
+
 
 ```{r}
 formula(step_model)
@@ -2444,7 +2499,8 @@ XGBoost postiže malo slabije rezultate od Random Forest-a.
 ```{r}
 xgb_imp = xgb.importance(feature_names = colnames(X_train), model = xgb_model) %>%
   as_tibble() %>%
-  slice_head(n = 15)
+  slice_head(n = 15) %>%
+  mutate(Feature = str_replace(Feature, "^(Album_type|Licensed_video_combo)", "\\1: "))
 
 ggplot(xgb_imp, aes(x = reorder(Feature, Gain), y = Gain)) +
   geom_col(fill = "#1DB954") +
@@ -2531,7 +2587,7 @@ lgb_eval = eval_metrics(y_test, lgb_pred) %>% mutate(Model = "LightGBM")
 lgb_eval
 ```
 
-LightGBM, nakon pretraživanja hiperparametara (learning_rate, num_leaves) uz k-fold unakrsnu validaciju, postiže rezultat malo bolji od XGBoost-a, ali i dalje malo slabiji od Random Forest-a.
+LightGBM, nakon pretraživanja hiperparametara (learning_rate, num_leaves) uz k-fold unakrsnu validaciju, postiže rezultat malo bolji i od XGBoost-a i od Random Forest-a.
 
 ```{r}
 lgb_imp = lgb.importance(lgb_model) %>%
@@ -2764,6 +2820,26 @@ rezultati_pun_vs_yt
 
 Rezultati pokazuju da razlika između varijante sa i bez Youtube videa praktično ne postoji, kod sva tri modela razlike u metrikama su na nivou treće decimale. Ovo potvrđuje da modeli zasnovani na stablima uspešno koriste Has_youtube indikator da izoluju pesme kojima je Views veštački postavljen na 0, tako da uključivanje ovih redova ne narušava predikciju za pesme koje imaju YouTube podatke. Kako širi skup podataka ne dovodi do pogoršanja performansi, a omogućava modelu da predviđa Stream i za pesme bez YouTube spota, razumljivo bi bilo koristiti i ove podatke u okviru nelinearnih modela.
 
+### Predviđene naspram stvarnih vrednosti (LightGBM)
+
+Pošto je LightGBM najbolji model, korisno je i vizuelno proveriti gde tačno greši, umesto da se oslonimo samo na metrike, pa ćemo uporediti predviđene i stvarne vrednosti na test skupu, na log skali.
+
+```{r}
+tibble(actual = expm1(y_test), predicted = expm1(lgb_pred)) %>%
+  ggplot(aes(x = actual, y = predicted)) +
+  geom_point(alpha = 0.15, color = "steelblue") +
+  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +
+  scale_x_log10(labels = scales::comma) +
+  scale_y_log10(labels = scales::comma) +
+  theme_minimal() +
+  labs(
+    title = "LightGBM - predviđene naspram stvarnih vrednosti (Stream)",
+    x = "Stream - stvarno", y = "Stream - predviđeno"
+  )
+```
+
+Crvena isprekidana linija predstavlja stvarne podatke iz skupa. Za srednji opseg vrednosti Stream-a tačke prate tu liniju relativno dobro, što je u skladu sa umerenim R² od oko 0.66. Međutim, za najveće vrednosti stvarnog Stream-a na desnom delu grafika tačke sistematski padaju ispod dijagonale, odnosno model predviđa niže vrednosti od stvarnih, tj. drugim rečima, LightGBM potcenjuje najpopularnije pesme. Ovo potvrđuje zapažanje iz dijagnostike linearnih modela i direktno podržava zaključak da model najviše greši kod ekstremno popularnih pesama, verovatno zato što takve pesme dostižu popularnost usled faktora koji nisu obuhvaćeni ovim skupom podataka.
+
 ## Poređenje modela
 
 Nakon kreiranja svih modela, trebalo bi i da ih uporedimo uz pomoć funkcije za evaluaciju, kako bismo adekvatno mogli da uporedimo modele i da donesemo potrebne zaključke. Prilikom poređenja poredimo predikacije modela nad istim skupovima, gde su uključene samo opservacije koje imaju spot na Youtube-u.
@@ -2786,7 +2862,7 @@ rezultati_modela %>%
   labs(title = "Poređenje svih modela (log(Stream) skala)", x = "", y = "Greška")
 ```
 
-Nelinearni modeli nadmašuju sva tri linearna modela, pri čemu R² se kreće oko 0.66, dakle porast od približno 0.2 u odnosu na linearne modele. RMSE i MAE su se smanjili za oko 20%. Ovako izražena razlika ukazuje da odnos između prediktora i Stream-a nije čisto linearan, već sadrži interakcije i nelinearne obrasce koje stabla prirodno hvataju, a linearna regresija ne može da uhvati.
+Nelinearni modeli nadmašuju sva tri linearna modela, pri čemu R² se kreće oko 0.66, dakle napravljen je rast od približno 0.2 u odnosu na linearne modele. RMSE i MAE su se smanjili za oko 20%. Ovako izražena razlika ukazuje da odnos između prediktora i Stream-a nije čisto linearan, već sadrži interakcije i nelinearne obrasce koje stabla prirodno hvataju, a linearna regresija ne može da uhvati.
 
 Uprkos razlici u tačnosti predviđanja, oba tipa modela su odabrala iste prediktore kao najvažnije, odnosno Views i Artist_LOO_stream dominiraju i kod linearne regresije i kod svih modela zasnovanih na stablima. Ova nam zapravo odgovara na pitanje koje smo zapravo imali na početku analize, odnosno šta najviše utiče na samu popularnost pesme. Zaključak je da su istorijska popularnost izvođača i vidljivost na YouTube-u ubedljivo najjači signali za predviđanje broja stream-ova, dok audio karakteristike pesme, čak i kada i u nelinearnim modelima, doprinose daleko manje.
 
@@ -2800,6 +2876,9 @@ Ovaj seminarski rad se fokusirao na primeni metoda Nauke o podacima i Mašinskog
 
 Ono što je analiza jasno pokazala jeste da uspeh pesme mnogo manje zavisi od toga kako ona zvuči, a mnogo više od uticaja drugih platformi i od popularnosti izvođača. Većina promenljivih vezana za audio karakteristike pesme se nije pokazala kao dobar prediktor, i pored razmih pokušaja kombinacija. Dakle, komercijalni uspeh pesme, u granicama ovog skupa podataka, je u većoj meri posledica reputacije i vidljivosti nego same muzičke produkcije.
 
-Korišćenjem linearnih modela, nismo uspeli da napravimo model koji objašnjava veliki deo varijanse u podacima, dok su nelinearni modeli uspeli da prikažu bolje rezultate. Međutim, čak je i najbolji model ostavio oko 30% popularnosti neobjašnjenim, što govori da predviđanje uspeha jedne pesme, bar uz ove prediktore, ne može u potpunosti da izvrši, posebno jer baš u ovom polju postoje različiti faktori koji se ne mogu uzeti u obzir i koji se ne mogu kvantifikovati. 
+Korišćenjem linearnih modela dobili smo R² od oko 0.48, dok su nelinearni modeli postigli R² od oko 0.66. Međutim, čak je i LightGBM ostavio oko 30% varijanse Stream-a neobjašnjenim, što govori da predviđanje uspeha jedne pesme, bar uz ove prediktore, ne može u potpunosti da izvrši, posebno jer baš u ovom polju postoje različiti faktori koji se ne mogu uzeti u obzir i koji se ne mogu kvantifikovati. 
+
+Dodatno, rad bi se mogao unaprediti kroz nekoliko koraka. Obzirom na to da su svi testirani modeli najviše grešili kod ekstremno popularnih pesama, poseban tretman repa raspodele, na primer kroz kvantilnu regresiju ili odvojen model za tu podgrupu bi mogli dodatno poboljšati preciznost predikcije. Pored toga, ponavljanje evaluacije preko više nasumičnih podela na trening i test skup umesto jedne dalo bi uvid u to koliko su dobijene metrike osetljive na konkretnu podelu podataka.
+
 
 
