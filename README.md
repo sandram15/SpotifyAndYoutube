@@ -8,6 +8,8 @@ Korišćen je [Spotify and Youtube](https://www.kaggle.com/datasets/salvatoreras
 
 Kompletan tok analize, od učitavanja sirovih podataka do finalnog poređenja modela, nalazi se u jedinstvenom fajlu [analiza_kompletna.Rmd](analiza_kompletna.Rmd), koji predstavlja glavni izvor informacija o projektu. Fajlovi u tematskim folderima ([Univarijantna analiza](Univarijantna%20analiza), [Bivarijantna analiza](Bivarijantna%20analiza), [Multivarijantna analiza](Multivarijantna%20analiza), [Ciscenje podataka](Ciscenje%20podataka), [Feature engineering](Feature%20engineering)) prikazuju kako je projekat postepeno prolazio kroz faze razvoja, dok je [analiza_kompletna.Rmd](analiza_kompletna.Rmd) njihov spoj u jedinstvenu, finalnu i najažurniju verziju analize.
 
+U folderu [dokumentacija](dokumentacija) nalazi se PDF dokument koji objedinjuje ceo projekat, predstavljajući strukturovan i čitljiv pregled kompletne analize.
+
 ## Opis podataka
 
 U uvodnom delu analize dat je osnovni pregled skupa podataka i njegovih atributa - opisane su numeričke i kategorijske promenljive, kao i značenje i tip svakog atributa (audio karakteristike poput `Danceability`, `Energy`, `Valence`; Spotify metrike poput `Stream`; YouTube metrike poput `Views`, `Likes`, `Comments`). Kako skup sadrži dva potencijalna kandidata za ciljnu promenljivu (`Stream` i `Views`), odluka o tome koja će se koristiti doneta je tek nakon detaljne eksplorativne analize - obrazloženje izbora `Stream`-a kao ciljne promenljive dato je u posebnoj sekciji analize.
@@ -70,6 +72,7 @@ Modeli su upoređeni na osnovu RMSE, MAE i R² metrika, izračunatih na log-tran
 | [Feature engineering](Feature%20engineering)         | Faza razvoja - kreiranje novih atributa                                                              |
 | [Podaci_za_model](Podaci_za_model)                   | Trening i test skup pripremljeni za modeliranje                                                      |
 | [Analize](Analize)                                   | Ranije, međuverzije analize nastale spajanjem prethodnih faza                                        |
+| [dokumentacija](dokumentacija)                       | PDF koji objedinjuje ceo projekat                                                                    |
 
 Fajlovi u fazama razvoja nisu međusobno usklađivani nakon što bi njihov sadržaj bio prenet u [analiza_kompletna.Rmd](analiza_kompletna.Rmd), pa za tačan i finalan opis analize treba koristiti isključivo taj fajl.
 
