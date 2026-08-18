@@ -1591,7 +1591,17 @@ sum(is.na(test$Artist_LOO_stream))
 ```{r}
 cor.test(train$Artist_LOO_stream, train$Stream, method = "spearman")
 ```
-Spearmanova korelacija, na trening skupu, potvrđuje umerenu do jaku pozitivnu vezu između dodate kolone i Stream-a, što znači da je ova kolona definitivno dobar kandidat za prediktor.
+Nakon kreiranja kolone, pogledaćemo i njemu raspodelu.
+
+```{r}
+ggplot(train, aes(x = Artist_LOO_stream)) +
+  geom_histogram(bins = 50, fill = "steelblue", color = "white") +
+  labs(title = "Distribucija Artist_LOO_stream", x = "Artist_LOO_stream", y = "Broj pesama") +
+  theme_minimal()
+```
+Kako smo i očekivali i Artist_LOO_stream je desno asimetrična, kako je i nastala od Stream-a koji je sam po sebi desno asimetričan, tako da je i za ovu kolonu neophodno koristiti logaritamsku transformaciju kada je koristimo u linearnim modelima.
+
+Spearmanova korelacija, na trening skupu, potvrđuje umerenu do jaku pozitivnu vezu između dodate kolone i Stream-a, što znači da je ova kolona definitivno dobar kandidat za prediktor. Prikazaćemo ovu povezanost i u okviru scatter plot-a, pri čemu ćemo za Artist_LOO kao i za Stream koristiti logaritamsku transformaciju.
 
 ```{r}
 train %>%
@@ -1601,7 +1611,7 @@ train %>%
   theme_minimal() +
   labs(title = "Stream naspram Artist (trening skup)", x = "log(Artist_LOO_stream + 1)", y = "log(Stream + 1)")
 ```
-Grafik potvrđuje umerenu do jaku pozitivnu vezu između Artist_LOO_stream i Stream-a, uočenu i Spearman testom. Veza nije potpuno linearna, jer je kriva blago konkavna. Primetno je i znatno rasipanje tačaka oko krive, posebno u srednjem delu opsega, što pokazuje da istorijska popularnost izvođača objašnjava samo deo varijacije u broju stream-ova pojedinačne pesme.
+Grafik potvrđuje umerenu do jaku pozitivnu vezu između Artist_LOO_stream i Stream-a, uočenu i Spearman testom. Veza nije potpuno linearna, jer je kriva blago konkavna. Primetno je i znatno rasipanje tačaka oko krive, posebno u srednjem delu opsega, što pokazuje da istorijska popularnost izvođača objašnjava samo deo varijacije u broju stream-ova pojedinačne pesme. 
 
 Uprkos svim nedostacima koje ovakav način enkodiranja kategorije ima, ovakav način je jedini da nekako pretvorimo izvođača u mogući prediktor, jer je label encoding nepovoljan za linearnu regresiju, a one-hot encoding bi doveo do uvođenja previše kolona. U ovoj situaciji ćemo ovu kolonu koristiti kao prediktor, posebno jer je i iz domenskog znanja možemo da zaključimo da je ovo faktor koji će veoma uticati na Stream-ove, a to su pokazali i testovi, za razliku od ostatka kvantifikovanih podataka vezanih za samu pesmu, koji za sada nisu pokazali idealne rezultate.
 
@@ -1642,7 +1652,7 @@ Korelacija sa Views-om je daleko manja, tako da se ove kolone, ukoliko bude bilo
 
 ## PCA (Views, Likes, Comments)
 
-Umesto izbacivanja Likes i Comments kolona u linearnoj regresiji, možemo probati i PCA (Principal Component Analysis) nad ove tri kolone, kako bismo probali da iskoristimo svu njihovu informaciju bez uvođenja multikolinearnosti u linearne modele. Pošto su Views, Likes i Comments izrazito desno asimetrični, prvo ćemo odraditi logaritamsku transformaciju, a zatim standardizovati podatke, jer je PCA osetljiva na razlike u varijansi između promenljivih.
+Umesto izbacivanja Likes i Comments kolona u linearnoj regresiji, možemo probati i PCA (Principal Component Analysis) nad ove tri kolone, kako bismo probali da iskoristimo svu njihovu informaciju bez uvođenja multikolinearnosti u linearne modele. PCA je statistička metoda koja se koristi za smanjenje broja promenljivih u velikim skupovima podataka, uz maksimalno moguće očuvanje informacija i varijanse.  Pošto su Views, Likes i Comments izrazito desno asimetrični, prvo ćemo odraditi logaritamsku transformaciju, a zatim standardizovati podatke, jer je PCA osetljiva na razlike u varijansi između promenljivih.
 
 Fitovanje PCA-a radimo samo nad pesmama koje imaju Youtube spot.
 
@@ -1940,7 +1950,7 @@ nrow(data_model)
 Da bismo proverili da li postoji bilo kakav oblik multikolinearnosti, koristimo funkciju vif, i ukoliko neki faktor ima vrednost veću od 5 smatraćemo da ta kolona izaziva problem multikolinearnosti.
 
 ```{r}
-model_A = lm(log1p(Stream) ~ Artist_LOO_stream + Album_type + 
+model_A = lm(log1p(Stream) ~ log1p(Artist_LOO_stream) + Album_type + 
     Danceability + Energy + Loudness + Speechiness + Acousticness +
     Instrumentalness + Liveness + Valence + Tempo + Duration_ms,
   data = data_model)
@@ -1950,7 +1960,7 @@ vif(model_A)
 
 ```{r}
 model_B = lm(
-  log1p(Stream) ~ Artist_LOO_stream + Album_type +
+  log1p(Stream) ~ log1p(Artist_LOO_stream) + Album_type +
     Danceability + Energy + Loudness + Speechiness + Acousticness +
     Instrumentalness + Liveness + Valence + Tempo + Duration_ms +
     log1p(Views) + Licensed + Official_video,
@@ -2004,7 +2014,7 @@ Testiramo iste interakcije koje imaju smisla iz domenskog znanja kao u ranijem f
 
 ```{r}
 model_B_interakcije = lm(
-  log1p(Stream) ~ Artist_LOO_stream + Album_type + 
+  log1p(Stream) ~ log1p(Artist_LOO_stream) + Album_type + 
     Danceability + Energy + Loudness + Speechiness + Acousticness +
     Instrumentalness + Liveness + Valence + Tempo + Duration_ms +
     log1p(Views) + Licensed + Official_video +
@@ -2156,13 +2166,13 @@ Pre same regresije, radimo formalnu selekciju prediktora, kako se ne bi oslonili
 
 U okviru linearnih modela, nećemo koristiti Likes i Comments, kako su izuzetno jako korelisani sa Views, pa bi to dovelo do problema multikolinearnosti.
 
-Views je, kao i Stream, izrazito desno asimetričan, pa ga radimo logaritamsku transformaciju.
+Views je, kao i Stream, izrazito desno asimetričan, pa ga radimo logaritamsku transformaciju. Takođe, logaritamsku transformaciju radićemo i za kolonu Artist_LOO_Stream jer ona nastala od Stream-ova, pa je samim tim i ona desno asimetrična.
 
 ```{r}
 full_formula = as.formula(
   log1p(Stream) ~ Album_type + Danceability + Energy + Loudness + Speechiness +
     Acousticness + Instrumentalness + Liveness + Valence + Tempo + Duration_ms +
-    log1p(Views) + Artist_LOO_stream + Likes_rate + Comments_rate +
+    log1p(Views) + log1p(Artist_LOO_stream) + Likes_rate + Comments_rate +
     Mood_quadrant + Party_index + Key_factor + Licensed_video_combo
 )
 ```
@@ -2198,16 +2208,16 @@ Analizom koeficijenata možemo izvući nekoliko zapažanja:
 
 **Audio karakteristike** su ovde sve statistički značajne, iako nijedna pojedinačno nije prelazila korelaciju od 0.14 sa Stream-om, ali u multivarijantnom modelu, gde se kontrolišu ostali prediktori, čak i slab uticaj može postati statistički merljiv, dok koeficijenti (svi ispod 1) pokazuju da je taj uticaj i dalje praktično mali.
 
-**Artist_LOO_stream** ima naizgled zanemarljiv koeficijent, ali je to posledica velikog raspona same promenljive, kada je on pomnožen sa tipičnom vrednošću, efekat je zapravo jedan od najizraženijih u modelu.
+**Artist_LOO_stream** ima prilično veliki koeficijent, što je u skladu sa njegovom jakom korelacijom sa Stream-om.
 
-**Comments_rate** pokazuje jak negativan koeficijent (-34.21, p < 0.001), u skladu sa negativnom korelacijom uočenom ranije.
+**Comments_rate** pokazuje jak negativan koeficijent (manji od -30, p < 0.001), u skladu sa negativnom korelacijom uočenom ranije.
 
 
 ```{r}
 formula(step_model)
 ```
 
-Stepwise selekcija je izbacila `Danceability`, `Instrumentalness`, `Tempo`, `Mood_quadrant` i `Key_factor`, a to su sve prediktori koji su se i u bivarijantnoj analizi pokazali kao zanemarljivi. Adjusted R² je ostao identičan uz jednostavniji model, što je i cilj stepwise selekcije.
+Stepwise selekcija je izbacila `Danceability`, `Tempo`, `Mood_quadrant` i `Key_factor`, a to su sve prediktori koji su se i u bivarijantnoj analizi pokazali kao zanemarljivi. Adjusted R² je ostao identičan uz jednostavniji model, što je i cilj stepwise selekcije.
 
 ### Obična linearna regresija
 
@@ -2228,7 +2238,7 @@ lm_eval = eval_metrics(y_test_model, lm_pred) %>% mutate(Model = "Linearna regre
 lm_eval
 ```
 
-Obična linearna regresija na testnom skupu R² od oko 0.481, vrlo blizu R² na trening skupu čije je vrednost oko 0.483, što znači da model dobro generalizuje i da nema znakova overfitting-a.
+Obična linearna regresija na testnom skupu R² od oko 0.56, vrlo blizu R² na trening skupu čije je vrednost oko 0.58, što znači da model dobro generalizuje i da nema znakova overfitting-a.
 
 ### Priprema za Lasso i Ridge regresiju
 
@@ -2274,7 +2284,7 @@ lasso_coef %>%
   filter(Coefficient == 0)
 ```
 
-Lasso daje skoro identičan rezultat kao obična regresija (oko R² = 0.480 u odnosu na 0.481), uz vrlo blagu regularizaciju, izbačena su samo 4 pojedinačna koeficijenta (Danceability, jedan nivo Mood_quadrant-a, dva nivoa Key_factor-a). 
+Lasso daje skoro identičan rezultat kao obična regresija, uz vrlo blagu regularizaciju, izbačena su samo 4 pojedinačna koeficijenta (Danceability, jedan nivo Mood_quadrant-a, dva nivoa Key_factor-a). 
 
 ### Ridge regresija
 
@@ -2290,14 +2300,17 @@ ridge_pred = as.numeric(predict(ridge_model, newx = X_test_model))
 ridge_eval = eval_metrics(y_test_model, ridge_pred) %>% mutate(Model = "Ridge regresija")
 ridge_eval
 ```
+Ridge regresija daje rezultat sličan prethodnim metodama, s tim što sada nema potrebe da proveramo koje je koeficijente svela na 0, jer to ona ne radi.
 
 ### Poređenje linearnih modela
+
+Na kraju kreiranja svih linearnih modela, uporedićemo njihove greške.
 
 ```{r}
 bind_rows(lm_eval, lasso_eval, ridge_eval)
 ```
 
-Sva tri linearna modela daju gotovo identičan rezultat, pri čemu R² ima vrednost oko 0.48. Regularizacija ovde ne donosi poboljšanje u odnosu na običnu regresiju, što je i očekivano, jer VIF provera u multivarijantnoj analizi nije pokazala ozbiljnu multikolinearnost među prediktorima, a broj opservacija je mnogo veći od broja prediktora, pa obična linearna regresija nije sklona overfitting-u koji bi regularizacija trebalo da ublaži. U sva tri modela Views i Artist_LOO_stream ostaju ubedljivo najjači prediktori. 
+Sva tri linearna modela daju gotovo identičan rezultat, pri čemu R² ima vrednost oko 0.56. Regularizacija ovde ne donosi poboljšanje u odnosu na običnu regresiju, što je i očekivano, jer VIF provera u multivarijantnoj analizi nije pokazala ozbiljnu multikolinearnost među prediktorima, a broj opservacija je mnogo veći od broja prediktora, pa obična linearna regresija nije sklona overfitting-u koji bi regularizacija trebalo da ublaži. U sva tri modela Views i Artist_LOO_stream ostaju ubedljivo najjači prediktori. 
 
 Na kraju, ostaje da vidimo da li nelinearni modeli, koji automatski hvataju interakcije i nelinearnosti, rade bolje nad ovim podacima.
 
@@ -2309,7 +2322,7 @@ Random Forest je bagging algoritam (svako stablo se trenira nad bootstrap uzorko
 
 ### Priprema za napredne modele
 
-Definisaćemo formulu za sva tri modela, sličnu formuli korišćenoj kod linearnih modela, s tim što ovde ne moramo da radimo logaritamsku transformaciju Views, jer ovde nemamo problem sa nelinearnim odnosima.
+Definisaćemo formulu za sva tri modela, sličnu formuli korišćenoj kod linearnih modela, s tim što ovde ne moramo da radimo logaritamsku transformaciju Views i Artist_LOO_stream, jer ovde nemamo problem sa nelinearnim odnosima.
 
 ```{r}
 formula_model = as.formula(log1p(Stream) ~ Album_type + Loudness + Acousticness + Instrumentalness +
@@ -2820,7 +2833,7 @@ rezultati_pun_vs_yt
 
 Rezultati pokazuju da razlika između varijante sa i bez Youtube videa praktično ne postoji, kod sva tri modela razlike u metrikama su na nivou treće decimale. Ovo potvrđuje da modeli zasnovani na stablima uspešno koriste Has_youtube indikator da izoluju pesme kojima je Views veštački postavljen na 0, tako da uključivanje ovih redova ne narušava predikciju za pesme koje imaju YouTube podatke. Kako širi skup podataka ne dovodi do pogoršanja performansi, a omogućava modelu da predviđa Stream i za pesme bez YouTube spota, razumljivo bi bilo koristiti i ove podatke u okviru nelinearnih modela.
 
-### Predviđene naspram stvarnih vrednosti (LightGBM)
+## Predviđene naspram stvarnih vrednosti (LightGBM)
 
 Pošto je LightGBM najbolji model, korisno je i vizuelno proveriti gde tačno greši, umesto da se oslonimo samo na metrike, pa ćemo uporediti predviđene i stvarne vrednosti na test skupu, na log skali.
 
@@ -2862,12 +2875,14 @@ rezultati_modela %>%
   labs(title = "Poređenje svih modela (log(Stream) skala)", x = "", y = "Greška")
 ```
 
-Nelinearni modeli nadmašuju sva tri linearna modela, pri čemu R² se kreće oko 0.66, dakle napravljen je rast od približno 0.2 u odnosu na linearne modele. RMSE i MAE su se smanjili za oko 20%. Ovako izražena razlika ukazuje da odnos između prediktora i Stream-a nije čisto linearan, već sadrži interakcije i nelinearne obrasce koje stabla prirodno hvataju, a linearna regresija ne može da uhvati.
+Nelinearni modeli nadmašuju sva tri linearna modela, pri čemu R² se kreće oko 0.66, dakle napravljen je rast od približno 0.1 u odnosu na linearne modele. RMSE i MAE su se smanjili za oko 20%. Ovako izražena razlika ukazuje da odnos između prediktora i Stream-a nije čisto linearan, već sadrži interakcije i nelinearne obrasce koje stabla prirodno hvataju, a linearna regresija ne može da uhvati.
 
 Uprkos razlici u tačnosti predviđanja, oba tipa modela su odabrala iste prediktore kao najvažnije, odnosno Views i Artist_LOO_stream dominiraju i kod linearne regresije i kod svih modela zasnovanih na stablima. Ova nam zapravo odgovara na pitanje koje smo zapravo imali na početku analize, odnosno šta najviše utiče na samu popularnost pesme. Zaključak je da su istorijska popularnost izvođača i vidljivost na YouTube-u ubedljivo najjači signali za predviđanje broja stream-ova, dok audio karakteristike pesme, čak i kada i u nelinearnim modelima, doprinose daleko manje.
 
 Svakako, izbor između ova dva pristupa zavisi od cilja analize:
-- Ukolikoko je prioritet **interpretabilnost**, tj. razumevanje *zašto* neka pesma ima više ili manje stream-ova, uz jasne, direktno tumačive koeficijente — linearna regresija (nakon stepwise selekcije) ostaje solidan izbor, uprkos nižoj tačnosti.
+
+- Ukoliko je prioritet **interpretabilnost**, tj. razumevanje *zašto* neka pesma ima više ili manje stream-ova, uz jasne, direktno tumačive koeficijente — linearna regresija (nakon stepwise selekcije) ostaje solidan izbor, uprkos nižoj tačnosti.
+
 - Ako je prioritet **tačnost predikcije**, modeli zasnovani na stablima, predstavljaju znatno bolji izbor, po ceni gubitka direktne interpretabilnosti pojedinačnih koeficijenata i veće računske zahtevnosti prilikom podešavanja hiperparametara.
 
 # Zaključak
@@ -2876,7 +2891,7 @@ Ovaj seminarski rad se fokusirao na primeni metoda Nauke o podacima i Mašinskog
 
 Ono što je analiza jasno pokazala jeste da uspeh pesme mnogo manje zavisi od toga kako ona zvuči, a mnogo više od uticaja drugih platformi i od popularnosti izvođača. Većina promenljivih vezana za audio karakteristike pesme se nije pokazala kao dobar prediktor, i pored razmih pokušaja kombinacija. Dakle, komercijalni uspeh pesme, u granicama ovog skupa podataka, je u većoj meri posledica reputacije i vidljivosti nego same muzičke produkcije.
 
-Korišćenjem linearnih modela dobili smo R² od oko 0.48, dok su nelinearni modeli postigli R² od oko 0.66. Međutim, čak je i LightGBM ostavio oko 30% varijanse Stream-a neobjašnjenim, što govori da predviđanje uspeha jedne pesme, bar uz ove prediktore, ne može u potpunosti da izvrši, posebno jer baš u ovom polju postoje različiti faktori koji se ne mogu uzeti u obzir i koji se ne mogu kvantifikovati. 
+Korišćenjem linearnih modela dobili smo R² od oko 0.56, dok su nelinearni modeli postigli R² od oko 0.66. Međutim, čak je i LightGBM ostavio oko 30% varijanse Stream-a neobjašnjenim, što govori da predviđanje uspeha jedne pesme, bar uz ove prediktore, ne može u potpunosti da izvrši, posebno jer baš u ovom polju postoje različiti faktori koji se ne mogu uzeti u obzir i koji se ne mogu kvantifikovati. 
 
 Dodatno, rad bi se mogao unaprediti kroz nekoliko koraka. Obzirom na to da su svi testirani modeli najviše grešili kod ekstremno popularnih pesama, poseban tretman repa raspodele, na primer kroz kvantilnu regresiju ili odvojen model za tu podgrupu bi mogli dodatno poboljšati preciznost predikcije. Pored toga, ponavljanje evaluacije preko više nasumičnih podela na trening i test skup umesto jedne dalo bi uvid u to koliko su dobijene metrike osetljive na konkretnu podelu podataka.
 
