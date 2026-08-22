@@ -2375,7 +2375,7 @@ Definisaćemo formulu za sva tri modela, sličnu formuli korišćenoj kod linear
 
 # formula_model = as.formula(log1p(Stream) ~ Album_type + Loudness + Acousticness + Instrumentalness + Views + Artist_LOO_stream + Likes_rate + Comments_rate + Energy + Duration_ms + Tempo + Liveness + Danceability + Valence + Party_index + Licensed_video_combo)
 
-formula_model = as.formula(log1p(Stream) ~ Album_type + Loudness + Acousticness + Instrumentalness + Views + Artist_LOO_stream + Likes_rate + Comments_rate + Energy + Duration_ms + Tempo + Liveness + Danceability + Valence + Party_index + Licensed_video_combo + Is_live + Is_collab + Is_spoken + Is_instrumental + Mood_quadrant)
+formula_model = as.formula(log1p(Stream) ~ Album_type + Loudness + Acousticness + Instrumentalness + Views + Artist_LOO_stream + Likes_rate + Comments_rate + Energy + Duration_ms + Tempo + Liveness + Danceability + Valence + Party_index + Licensed_video_combo + Is_live + Is_collab + Is_spoken + Is_instrumental + Mood_quadrant + Key_factor)
 ```
 
 XGBoost i LightGBM zahtevaju numeričku matricu, pa moramo da kodiramo kategorijske kolone. Kao i kod Lasso/Ridge regresije, a train i test moramo privremeno da spojimo kako bi matrica imala identične kolone za oba skupa.
@@ -2684,7 +2684,7 @@ Ponovo ćemo definisati formulu, koja će uključivati i `Has_youtube` kao dodat
 ```{r}
 formula_full = as.formula(log1p(Stream) ~ Album_type + Loudness + Acousticness + Instrumentalness +
     Views + Artist_LOO_stream + Likes_rate + Comments_rate + Energy + Duration_ms +
-    Tempo + Liveness + Danceability + Valence + Party_index + Licensed_video_combo + Has_youtube + Is_live + Is_instrumental + Is_spoken + Is_collab + Mood_quadrant)
+    Tempo + Liveness + Danceability + Valence + Party_index + Licensed_video_combo + Has_youtube + Is_live + Is_instrumental + Is_spoken + Is_collab + Mood_quadrant + Key_factor)
 
 n_train_full = nrow(train_ml)
 
@@ -2880,7 +2880,7 @@ Ponovo ćemo definisati formulu, isključiti navedene prediktore, i na isti nač
 
 ```{r}
 formula_full = as.formula(log1p(Stream) ~ Album_type + Loudness + Acousticness + Instrumentalness + Artist_LOO_stream + Energy + Duration_ms +
-    Tempo + Liveness + Danceability + Valence + Party_index  + Is_live + Is_instrumental + Is_spoken + Is_collab + Mood_quadrant)
+    Tempo + Liveness + Danceability + Valence + Party_index  + Is_live + Is_instrumental + Is_spoken + Is_collab + Mood_quadrant + Key_factor)
 
 n_train_full = nrow(train_ml)
 
