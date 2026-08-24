@@ -1323,17 +1323,22 @@ data = data %>%
 
 Pre nego što nastavimo sa popunjavanjem preostalih nedostajućih vrednosti i sa feature engineering-om, moramo prvo da podelimo podatke na trening i test skup. Razlog za ovo je sprečavanje curenja podataka, kako koraci koji slede računaju statistike preko grupa redova, odnosno po izvođaču, po opsegu Views-a i ako bismo te statistike računali na celom skupu pre podele, test skup bi delimično imao informaciju o samom sebi kroz ove statistike.
 
+Prilikom podele na test i train, pobrinućemo se da se ne desi da se ista pesma pojavi i u test i u train skupu (kako postoje duplikati zbog koautorstva).
+
 
 ```{r}
+## izmenjeno - da se ne bi desilo da se ista pesma pojavi i u test i u train
 set.seed(123)
-n = nrow(data)
-train_idx = sample(seq_len(n), size = floor(0.8 * n))
 
-train = data[train_idx, ]
-test = data[-train_idx, ]
+sve_pesme  <- unique(data$Track)
 
-nrow(train)
+test_pesme <- sample(sve_pesme, size = floor(0.2 * length(sve_pesme)))
+
+test  <- data[data$Track %in% test_pesme, ]
+train <- data[!(data$Track %in% test_pesme), ]
+
 nrow(test)
+nrow(train)
 ```
 
 ### Likes i Comments
@@ -2199,6 +2204,7 @@ eval_metrics = function(actual_log, pred_log) {
 }
 ```
 
+
 ## Linearni modeli
 
 Pre naprednih, nelinearnih modela testiraćemo tri pristupa u kreiranju linearnih modela, odnosno običnu linearnu regresiju, Lasso i Ridge regresiju. 
@@ -2259,7 +2265,6 @@ Analizom koeficijenata možemo izvući nekoliko zapažanja:
 ```{r}
 formula(step_model)
 ```
-
 Stepwise selekcija je izbacila `Danceability`, `Tempo`, `Mood_quadrant` i `Key_factor`, a to su sve prediktori koji su se i u bivarijantnoj analizi pokazali kao zanemarljivi. Adjusted R² je ostao identičan uz jednostavniji model, što je i cilj stepwise selekcije.
 
 ### Obična linearna regresija
@@ -2272,7 +2277,6 @@ lm_eval_train = eval_metrics(log1p(train_model$Stream), lm_pred_train) %>% mutat
 lm_eval_train
 ```
 
-
 ```{r}
 y_test_model = log1p(test_model$Stream)
 lm_pred = predict(step_model, newdata = test_model)
@@ -2280,7 +2284,6 @@ lm_pred = predict(step_model, newdata = test_model)
 lm_eval = eval_metrics(y_test_model, lm_pred) %>% mutate(Model = "Linearna regresija")
 lm_eval
 ```
-
 Obična linearna regresija na testnom skupu R² od oko 0.56, vrlo blizu R² na trening skupu čije je vrednost oko 0.58, što znači da model dobro generalizuje i da nema znakova overfitting-a.
 
 ### Priprema za Lasso i Ridge regresiju
@@ -3164,6 +3167,7 @@ Svakako, izbor između ova dva pristupa zavisi od cilja analize:
 - Ukoliko je prioritet **interpretabilnost**, tj. razumevanje *zašto* neka pesma ima više ili manje stream-ova, uz jasne, direktno tumačive koeficijente — linearna regresija (nakon stepwise selekcije) ostaje solidan izbor, uprkos nižoj tačnosti.
 
 - Ako je prioritet **tačnost predikcije**, modeli zasnovani na stablima, predstavljaju znatno bolji izbor, po ceni gubitka direktne interpretabilnosti pojedinačnih koeficijenata i veće računske zahtevnosti prilikom podešavanja hiperparametara.
+
 
 # Zaključak
 
